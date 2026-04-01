@@ -67,7 +67,7 @@ pipeline {
                         // ConfigMap
                         sh '''
                         kubectl create configmap db-config \
-                            --from-literal=DB_HOST=18.170.71.8 \
+                            --from-literal=DB_HOST=172.31.14.3 \
                             --from-literal=DB_NAME=testdb \
                             --from-literal=TABLE_NAME=cc_fraud_streaming_data \
                             --dry-run=client -o yaml \
