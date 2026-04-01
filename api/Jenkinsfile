@@ -2,16 +2,16 @@ pipeline {
     agent any
     environment {
         VENV_DIR = 'venv'
-        DOCKER_IMAGE = 'tc349/streaming-data-api:v2'
+        DOCKER_IMAGE = 'uttamraj9/streaming-data-api:v2'
         FAST_APP_PORT = '5310'
-        SERVER_IP = '18.134.163.221' // Replace with your server's public IP
+        SERVER_IP = '13.42.152.118' // Replace with your server's public IP
         KUBECONFIG = credentials('kubeconfig-file') // Reference the kubeconfig credential
         KUBE_NAMESPACE  = 'default'
     }
     stages {
         stage('Clone Repository') {
             steps {
-                git url: 'https://github.com/tc349/Big_Data_Project.git', branch: 'feature/streaming-data-api'
+                git url: 'https://github.com/uttamraj9/Big_Data_Project.git', branch: 'main'
             }
         }
         stage('Set Up Virtual Environment') {
@@ -67,7 +67,7 @@ pipeline {
                         // ConfigMap
                         sh '''
                         kubectl create configmap db-config \
-                            --from-literal=DB_HOST=172.31.14.3 \
+                            --from-literal=DB_HOST=18.170.71.8 \
                             --from-literal=DB_NAME=testdb \
                             --from-literal=TABLE_NAME=cc_fraud_streaming_data \
                             --dry-run=client -o yaml \
