@@ -71,7 +71,7 @@ pipeline {
                             --from-literal=DB_NAME=testdb \
                             --from-literal=TABLE_NAME=cc_fraud_streaming_data \
                             --dry-run=client -o yaml \
-                        | kubectl apply -n ${KUBE_NAMESPACE} -f -
+                        | kubectl apply -n ${KUBE_NAMESPACE} --validate=false -f -
                         '''
 
                         // Secret
@@ -80,7 +80,7 @@ pipeline {
                             --from-literal=DB_USERNAME=${DB_USERNAME} \
                             --from-literal=DB_PASSWORD=${DB_PASSWORD} \
                             --dry-run=client -o yaml \
-                        | kubectl apply -n ${KUBE_NAMESPACE} -f -
+                        | kubectl apply -n ${KUBE_NAMESPACE} --validate=false -f -
                         '''
                     }
                 }
