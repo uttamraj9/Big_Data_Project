@@ -42,7 +42,7 @@ This directory implements the **Bronze Layer** of the data pipeline — the raw 
 ## Directory Structure
 
 ```
-data_ingestion_postgres/
+data_ingestion/
 ├── src/
 │   └── bronze/
 │       ├── simulate_data_split.py        # one-time: splits raw CSV into 3 subsets
@@ -150,7 +150,7 @@ docker exec my-postgres psql -U admin -d testdb -c "\dt"
 ## Step 2 — Install Python Dependencies
 
 ```bash
-cd data_ingestion_postgres
+cd data_ingestion
 pip install -r requirements.txt
 ```
 
@@ -158,7 +158,7 @@ pip install -r requirements.txt
 
 ## Step 3 — Create the `.env` File
 
-Create `data_ingestion_postgres/.env` (this file is gitignored — never commit it):
+Create `data_ingestion/.env` (this file is gitignored — never commit it):
 
 ```env
 DB_HOST=localhost
@@ -179,7 +179,7 @@ LOAD_TABLE=cc_fraud_trans
 Splits the raw CSV into three chronological subsets that simulate different ingestion patterns:
 
 ```bash
-cd data_ingestion_postgres
+cd data_ingestion
 python3 src/bronze/simulate_data_split.py
 ```
 
@@ -198,7 +198,7 @@ Simulation data split complete:
 ### Full load (initial setup — replaces the table)
 
 ```bash
-cd data_ingestion_postgres/src/bronze
+cd data_ingestion/src/bronze
 ENV_FILE=../../.env python3 ingest_to_postgres.py full
 ```
 
@@ -494,9 +494,9 @@ DB_PORT=5432
 DB_NAME=testdb
 DB_USERNAME=admin
 DB_PASSWORD=admin123
-FULL_LOAD_CSV=data_ingestion_postgres/data/split/full_load.csv
-INCREMENTAL_LOAD_CSV=data_ingestion_postgres/data/split/incremental_load.csv
-KAFKA_STREAMING_CSV=data_ingestion_postgres/data/split/kafka_streaming.csv
+FULL_LOAD_CSV=data_ingestion/data/split/full_load.csv
+INCREMENTAL_LOAD_CSV=data_ingestion/data/split/incremental_load.csv
+KAFKA_STREAMING_CSV=data_ingestion/data/split/kafka_streaming.csv
 LOAD_TABLE=cc_fraud_trans
 ```
 
@@ -507,7 +507,7 @@ In Jenkins → **New Item → Pipeline**:
 - **Name:** `bronze-incremental-load`
 - **Definition:** Pipeline script from SCM
 - **SCM:** Git → your repository URL
-- **Script Path:** `data_ingestion_postgres/Jenkinsfile`
+- **Script Path:** `data_ingestion/Jenkinsfile`
 
 The `cron('0 10 * * *')` trigger in the Jenkinsfile will schedule it automatically once the job is saved.
 
@@ -523,12 +523,12 @@ Stage 1 — Install Dependencies
 
 Stage 2 — Simulate New Records in PostgreSQL
     Sources the .env credential file
-    Runs: python3 data_ingestion_postgres/src/bronze/ingest_to_postgres.py inc
+    Runs: python3 data_ingestion/src/bronze/ingest_to_postgres.py inc
     Appends new rows to PostgreSQL, simulating a daily data arrival
 
 Stage 3 — Incremental Load: PostgreSQL -> HDFS Bronze
     Sources the .env credential file
-    Runs: data_ingestion_postgres/src/bronze/oozie/incremental_load/scripts/bronze_incremental_load.sh
+    Runs: data_ingestion/src/bronze/oozie/incremental_load/scripts/bronze_incremental_load.sh
     1. Reads MAX(Timestamp) from Hive via beeline
     2. Runs Sqoop incremental append to push new rows to HDFS
 ```

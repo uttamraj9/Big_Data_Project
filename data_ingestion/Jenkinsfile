@@ -46,7 +46,7 @@ pipeline {
 
                         source ${VENV_DIR}/bin/activate
                         pip install --upgrade pip --quiet
-                        pip install -r data_ingestion_postgres/requirements.txt --quiet
+                        pip install -r data_ingestion/requirements.txt --quiet
                         echo "Dependencies installed."
                     '''
                 }
@@ -64,12 +64,12 @@ pipeline {
                         set -a; source "$ENV_FILE"; set +a
 
                         # Override CSV paths to current workspace — .env may contain stale absolute paths
-                        export FULL_LOAD_CSV="${WORKSPACE}/data_ingestion_postgres/data/split/full_load.csv"
-                        export INCREMENTAL_LOAD_CSV="${WORKSPACE}/data_ingestion_postgres/data/split/incremental_load.csv"
-                        export KAFKA_STREAMING_CSV="${WORKSPACE}/data_ingestion_postgres/data/split/kafka_streaming.csv"
+                        export FULL_LOAD_CSV="${WORKSPACE}/data_ingestion/data/split/full_load.csv"
+                        export INCREMENTAL_LOAD_CSV="${WORKSPACE}/data_ingestion/data/split/incremental_load.csv"
+                        export KAFKA_STREAMING_CSV="${WORKSPACE}/data_ingestion/data/split/kafka_streaming.csv"
 
                         source ${VENV_DIR}/bin/activate
-                        python3 data_ingestion_postgres/src/bronze/ingest_to_postgres.py inc
+                        python3 data_ingestion/src/bronze/ingest_to_postgres.py inc
                     '''
                 }
             }
@@ -88,7 +88,7 @@ pipeline {
                         # sqoop, beeline, and hdfs CLIs are only available on the edge node.
                         SSH_KEY="/var/lib/jenkins/.ssh/cloudera_edge.pem"
                         EDGE_NODE="ec2-user@13.41.167.97"
-                        SCRIPT="data_ingestion_postgres/src/bronze/oozie/incremental_load/scripts/bronze_incremental_load.sh"
+                        SCRIPT="data_ingestion/src/bronze/oozie/incremental_load/scripts/bronze_incremental_load.sh"
                         REMOTE_SCRIPT="/tmp/bronze_incremental_load_jenkins.sh"
 
                         scp -i "$SSH_KEY" -o StrictHostKeyChecking=no "$SCRIPT" "${EDGE_NODE}:${REMOTE_SCRIPT}"
