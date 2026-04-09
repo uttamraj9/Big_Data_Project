@@ -2,15 +2,15 @@
 # =============================================================================
 # deploy.sh
 # =============================================================================
-# Deploys the Oozie bronze layer workflows to HDFS and optionally runs them.
+# Deploys the Oozie raw layer workflows to HDFS and optionally runs them.
 #
 # RUN THIS SCRIPT FROM THE CLOUDERA EDGE NODE (13.41.167.97) where the
 # hdfs, oozie, and beeline CLI tools are available.
 #
 # WHAT IT DOES
 # ------------
-#   1. Uploads full_load workflow files  -> HDFS /user/ec2-user/oozie/bronze_full_load/
-#   2. Uploads incremental_load files    -> HDFS /user/ec2-user/oozie/bronze_incremental_load/
+#   1. Uploads full_load workflow files  -> HDFS /user/ec2-user/oozie/raw_full_load/
+#   2. Uploads incremental_load files    -> HDFS /user/ec2-user/oozie/raw_incremental_load/
 #   3. Runs the full load workflow once  (--run-full flag)
 #   4. Submits the incremental load coordinator (--run-incremental flag)
 #
@@ -47,7 +47,7 @@ for arg in "$@"; do
 done
 
 echo "============================================================"
-echo " Bronze Layer Oozie Deploy"
+echo " Raw Layer Oozie Deploy"
 echo " HDFS base : ${HDFS_BASE}"
 echo " Oozie URL : ${OOZIE_URL}"
 echo "============================================================"
@@ -56,12 +56,12 @@ echo "============================================================"
 echo ""
 echo "[1/2] Uploading full_load workflow to HDFS..."
 
-FULL_LOAD_HDFS="${HDFS_BASE}/bronze_full_load"
+FULL_LOAD_HDFS="${HDFS_BASE}/raw_full_load"
 hdfs dfs -mkdir -p "${FULL_LOAD_HDFS}"
 
 hdfs dfs -put -f "${SCRIPT_DIR}/full_load/workflow.xml"                "${FULL_LOAD_HDFS}/"
 hdfs dfs -put -f "${SCRIPT_DIR}/full_load/job.properties"              "${FULL_LOAD_HDFS}/"
-hdfs dfs -put -f "${SCRIPT_DIR}/full_load/create_bronze_hive_table.hql" "${FULL_LOAD_HDFS}/"
+hdfs dfs -put -f "${SCRIPT_DIR}/full_load/create_raw_hive_table.hql" "${FULL_LOAD_HDFS}/"
 
 echo "  Uploaded: ${FULL_LOAD_HDFS}/"
 hdfs dfs -ls "${FULL_LOAD_HDFS}/"
@@ -70,7 +70,7 @@ hdfs dfs -ls "${FULL_LOAD_HDFS}/"
 echo ""
 echo "[2/2] Uploading incremental_load workflow to HDFS..."
 
-INC_LOAD_HDFS="${HDFS_BASE}/bronze_incremental_load"
+INC_LOAD_HDFS="${HDFS_BASE}/raw_incremental_load"
 hdfs dfs -mkdir -p "${INC_LOAD_HDFS}"
 
 hdfs dfs -put -f "${SCRIPT_DIR}/incremental_load/workflow.xml"    "${INC_LOAD_HDFS}/"
@@ -92,7 +92,7 @@ echo "============================================================"
 # ── Optional: Submit full load workflow ───────────────────────────────────────
 if [ "${RUN_FULL}" = true ]; then
     echo ""
-    echo "Submitting bronze full load workflow..."
+    echo "Submitting raw full load workflow..."
     JOB_ID=$(oozie job -run \
         -oozie "${OOZIE_URL}" \
         -config "${SCRIPT_DIR}/full_load/job.properties" \
@@ -114,7 +114,7 @@ fi
 # ── Optional: Submit incremental load coordinator ─────────────────────────────
 if [ "${RUN_INCREMENTAL}" = true ]; then
     echo ""
-    echo "Submitting bronze incremental load coordinator (daily at 10:00 AM UTC)..."
+    echo "Submitting raw incremental load coordinator (daily at 10:00 AM UTC)..."
     COORD_ID=$(oozie job -run \
         -oozie "${OOZIE_URL}" \
         -config "${SCRIPT_DIR}/incremental_load/job.properties" \

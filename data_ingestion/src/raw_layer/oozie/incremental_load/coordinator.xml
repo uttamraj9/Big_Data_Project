@@ -1,7 +1,7 @@
 <!--
-    coordinator.xml — Bronze Layer Incremental Load Coordinator
+    coordinator.xml — Raw Layer Incremental Load Coordinator
     ============================================================
-    Schedules the bronze-incremental-load workflow to run daily at 10:00 AM UTC.
+    Schedules the raw-incremental-load workflow to run daily at 10:00 AM UTC.
 
     The coordinator runs between start_time and end_time (set in job.properties).
     It triggers one workflow instance per day, passing all job.properties values
@@ -29,7 +29,7 @@
     <action>
         <workflow>
             <!-- Points to the incremental load workflow on HDFS -->
-            <app-path>${nameNode}/user/ec2-user/oozie/bronze_incremental_load</app-path>
+            <app-path>${nameNode}/user/ec2-user/oozie/raw_incremental_load</app-path>
             <!--
                 Pass all coordinator job properties through to the workflow
                 so the workflow uses the same DB credentials, HDFS paths, etc.

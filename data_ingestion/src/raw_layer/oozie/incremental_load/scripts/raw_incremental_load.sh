@@ -1,8 +1,8 @@
 #!/bin/bash
 # =============================================================================
-# bronze_incremental_load.sh
+# raw_incremental_load.sh
 # =============================================================================
-# Bronze Layer — Incremental Load: PostgreSQL -> HDFS (append)
+# Raw Layer — Incremental Load: PostgreSQL -> HDFS (append)
 #
 # PURPOSE
 # -------
@@ -28,7 +28,7 @@
 #
 # PREREQUISITES
 # -------------
-#   - bronze_full_load.sh must have been run at least once to create the
+#   - raw_full_load.sh must have been run at least once to create the
 #     Hive table and seed the initial dataset.
 #   - Sqoop, beeline, and hdfs CLI available on PATH
 #   - HiveServer2 running at ip-172-31-12-74.eu-west-2.compute.internal:10000
@@ -44,7 +44,7 @@
 # USAGE
 # -----
 #   export DB_HOST=<host> DB_NAME=<db> DB_USERNAME=<user> DB_PASSWORD=<pass>
-#   bash bronze_incremental_load.sh
+#   bash raw_incremental_load.sh
 #
 # SCHEDULING
 # ----------
@@ -91,7 +91,7 @@ LAST_VALUE=$(beeline -u "${HIVESERVER2_URL}" \
 
 if [ -z "${LAST_VALUE}" ]; then
     echo "ERROR: Could not retrieve watermark from Hive. Is the table populated?"
-    echo "       Run bronze_full_load.sh first."
+    echo "       Run raw_full_load.sh first."
     exit 1
 fi
 

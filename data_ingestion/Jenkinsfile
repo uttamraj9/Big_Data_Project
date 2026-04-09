@@ -1,5 +1,5 @@
 // =============================================================================
-// Jenkinsfile — Bronze Layer: Daily Incremental Ingestion Pipeline
+// Jenkinsfile — Raw Layer: Daily Incremental Ingestion Pipeline
 // =============================================================================
 // Triggers daily at 10:00 AM and runs two stages:
 //
@@ -8,7 +8,7 @@
 //             PostgreSQL database by appending the next batch of rows
 //             from incremental_load.csv (training simulation only).
 //
-//   Stage 2 — bronze_incremental_load.sh
+//   Stage 2 — raw_incremental_load.sh
 //             Reads the Hive watermark (MAX Timestamp), then uses Sqoop to
 //             append only the new records from PostgreSQL into the HDFS
 //             bronze landing zone. Hive picks them up automatically.
@@ -24,7 +24,7 @@ pipeline {
     agent any
 
     environment {
-        VENV_DIR = '/var/lib/jenkins/venvs/bronze_ingestion_venv'
+        VENV_DIR = '/var/lib/jenkins/venvs/raw_ingestion_venv'
     }
 
     stages {
@@ -65,14 +65,14 @@ pipeline {
                         export KAFKA_STREAMING_CSV="${WORKSPACE}/data_ingestion/data/split/kafka_streaming.csv"
 
                         source ${VENV_DIR}/bin/activate
-                        python3 data_ingestion/src/bronze/ingest_to_postgres.py inc
+                        python3 data_ingestion/src/raw_layer/ingest_to_postgres.py inc
                     '''
                 }
             }
         }
 
         stage('Incremental Load: PostgreSQL -> HDFS Bronze') {
-            // SSHes to the Cloudera edge node and runs bronze_incremental_load.sh there.
+            // SSHes to the Cloudera edge node and runs raw_incremental_load.sh there.
             // sqoop, beeline, and hdfs CLIs are only available on the edge node.
             steps {
                 withCredentials([file(credentialsId: 'my-env-file', variable: 'ENV_FILE')]) {
@@ -84,8 +84,8 @@ pipeline {
                         # sqoop, beeline, and hdfs CLIs are only available on the edge node.
                         SSH_KEY="/var/lib/jenkins/.ssh/cloudera_edge.pem"
                         EDGE_NODE="ec2-user@13.41.167.97"
-                        SCRIPT="data_ingestion/src/bronze/oozie/incremental_load/scripts/bronze_incremental_load.sh"
-                        REMOTE_SCRIPT="/tmp/bronze_incremental_load_jenkins.sh"
+                        SCRIPT="data_ingestion/src/raw_layer/oozie/incremental_load/scripts/raw_incremental_load.sh"
+                        REMOTE_SCRIPT="/tmp/raw_incremental_load_jenkins.sh"
 
                         scp -i "$SSH_KEY" -o StrictHostKeyChecking=no "$SCRIPT" "${EDGE_NODE}:${REMOTE_SCRIPT}"
                         ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no "$EDGE_NODE" \
@@ -102,10 +102,10 @@ pipeline {
 
     post {
         success {
-            echo "Bronze incremental load succeeded. New records are available in Hive."
+            echo "Raw incremental load succeeded. New records are available in Hive."
         }
         failure {
-            echo "Bronze incremental load failed. Check the stage logs above."
+            echo "Raw incremental load failed. Check the stage logs above."
         }
         always {
             echo "Cleaning up workspace..."

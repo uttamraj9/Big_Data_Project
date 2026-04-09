@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  workflow.xml - Bronze Layer Full Load
+  workflow.xml - Raw Layer Full Load
   ======================================
   Oozie workflow: PostgreSQL -> HDFS -> Hive external table (full replace).
 
@@ -18,7 +18,7 @@
     nameNode, jobTracker, hdfs_target_dir,
     db_host, db_name, db_username, db_password, hiveserver2_url
 -->
-<workflow-app name="bronze-full-load" xmlns="uri:oozie:workflow:0.5">
+<workflow-app name="raw-full-load" xmlns="uri:oozie:workflow:0.5">
 
     <start to="prepare-hdfs"/>
 
@@ -71,7 +71,7 @@
             <job-tracker>${jobTracker}</job-tracker>
             <name-node>${nameNode}</name-node>
             <jdbc-url>${hiveserver2_url}</jdbc-url>
-            <script>create_bronze_hive_table.hql</script>
+            <script>create_raw_hive_table.hql</script>
             <param>hdfs_target_dir=${hdfs_target_dir}</param>
         </hive2>
         <ok    to="end"/>
@@ -79,7 +79,7 @@
     </action>
 
     <kill name="fail">
-        <message>Bronze full load FAILED at [${wf:lastErrorNode()}]: ${wf:errorMessage(wf:lastErrorNode())}</message>
+        <message>Raw full load FAILED at [${wf:lastErrorNode()}]: ${wf:errorMessage(wf:lastErrorNode())}</message>
     </kill>
 
     <end name="end"/>

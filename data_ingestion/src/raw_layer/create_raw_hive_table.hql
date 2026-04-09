@@ -1,27 +1,42 @@
 -- =============================================================================
--- create_bronze_hive_table.hql  (Oozie version)
+-- create_raw_hive_table.hql
 -- =============================================================================
--- Called by the bronze-full-load Oozie workflow (hive2 action).
+-- Raw Layer — Hive External Table DDL
 --
--- hdfs_target_dir is injected at runtime via the Oozie <param> element
--- in workflow.xml and resolved by Hive variable substitution.
+-- PURPOSE
+-- -------
+-- Defines the Hive external table that exposes the raw credit card fraud
+-- transaction data landed in HDFS by Sqoop (raw_full_load.sh).
+--
+-- The table is EXTERNAL so that dropping it in Hive never deletes the
+-- underlying HDFS files — the bronze data is owned by the ingestion pipeline,
+-- not by Hive. The schema mirrors the source PostgreSQL table exactly.
+--
+-- This DDL is used by raw_full_load.sh. It is kept here as a standalone
+-- reference file so the schema can be reviewed, version-controlled, and
+-- reapplied independently of the ingestion script.
+--
+-- LOCATION
+-- --------
+--   HDFS: /tmp/US_UK_05052025/class_project/input/raw_data_sqoop/
+--   The files in this directory are comma-delimited text files written by
+--   Sqoop with no header row (skip.header.line.count=0).
+--
+-- NOTE: Timestamp is a reserved word in HiveQL and must be backtick-quoted.
 -- =============================================================================
 
 CREATE DATABASE IF NOT EXISTS bd_class_project;
 
 USE bd_class_project;
 
--- Drop first so schema is always in sync with the PostgreSQL source
 DROP TABLE IF EXISTS cc_fraud_trans;
 
--- EXTERNAL table: dropping this table in Hive will NOT delete the HDFS files.
--- The bronze data is owned by the Sqoop ingestion job, not Hive.
-CREATE EXTERNAL TABLE bd_class_project.cc_fraud_trans (
+CREATE EXTERNAL TABLE IF NOT EXISTS bd_class_project.cc_fraud_trans (
     Transaction_ID               STRING,
     User_ID                      STRING,
     Transaction_Amount           DECIMAL(10,2),
     Transaction_Type             STRING,
-    `Timestamp`                  TIMESTAMP,
+    `Timestamp`                  TIMESTAMP,       -- reserved word, must be quoted
     Account_Balance              DECIMAL(10,2),
     Device_Type                  STRING,
     Location                     STRING,
@@ -37,11 +52,11 @@ CREATE EXTERNAL TABLE bd_class_project.cc_fraud_trans (
     Authentication_Method        STRING,
     Risk_Score                   DECIMAL(5,4),
     Is_Weekend                   INT,
-    Fraud_Label                  INT
+    Fraud_Label                  INT              -- 0 = legitimate, 1 = fraud
 )
 ROW FORMAT DELIMITED
 FIELDS TERMINATED BY ','
 LINES TERMINATED BY '\n'
 STORED AS TEXTFILE
-LOCATION '${hdfs_target_dir}'
+LOCATION '/tmp/US_UK_05052025/class_project/input/raw_data_sqoop'
 TBLPROPERTIES ("skip.header.line.count"="0");

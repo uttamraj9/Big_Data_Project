@@ -1,7 +1,7 @@
 """
 ingest_to_postgres.py
 =====================
-Bronze Layer — PostgreSQL Ingestion (Simulation)
+Raw Layer — PostgreSQL Ingestion (Simulation)
 
 PURPOSE
 -------
@@ -10,7 +10,7 @@ simulate the source transactional system used in a real data pipeline.
 
 In production the source would be a live OLTP database (e.g. a bank's
 transaction system). Here we populate PostgreSQL from pre-split CSV files
-so that the downstream Sqoop -> HDFS -> Hive bronze layer can be exercised
+so that the downstream Sqoop -> HDFS -> Hive raw layer can be exercised
 end-to-end in a training environment.
 
 MODES

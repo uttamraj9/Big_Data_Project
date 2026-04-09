@@ -1,8 +1,8 @@
 #!/bin/bash
 # =============================================================================
-# bronze_full_load.sh
+# raw_full_load.sh
 # =============================================================================
-# Bronze Layer — Full Load: PostgreSQL -> HDFS -> Hive External Table
+# Raw Layer — Full Load: PostgreSQL -> HDFS -> Hive External Table
 #
 # PURPOSE
 # -------
@@ -11,8 +11,8 @@
 # external table on top of it.
 #
 # Run this script once during initial pipeline setup, or whenever a full
-# data refresh of the bronze layer is required. For ongoing daily updates
-# use bronze_incremental_load.sh instead.
+# data refresh of the raw layer is required. For ongoing daily updates
+# use raw_incremental_load.sh instead.
 #
 # PIPELINE FLOW
 # -------------
@@ -43,7 +43,7 @@
 # USAGE
 # -----
 #   export DB_HOST=<host> DB_NAME=<db> DB_USERNAME=<user> DB_PASSWORD=<pass>
-#   bash bronze_full_load.sh
+#   bash raw_full_load.sh
 #
 # =============================================================================
 
@@ -71,7 +71,7 @@ for var in DB_HOST DB_NAME DB_USERNAME DB_PASSWORD; do
 done
 
 echo "============================================================"
-echo " Bronze Layer — Full Load"
+echo " Raw Layer — Full Load"
 echo " Source : jdbc:postgresql://${PG_HOST}:5432/${PG_DB}"
 echo " Table  : ${PG_TABLE}"
 echo " HDFS   : ${HDFS_TARGET_DIR}"
@@ -182,7 +182,7 @@ echo "Rows in ${HIVE_DATABASE}.${HIVE_TABLE}: ${ROW_COUNT}"
 
 echo ""
 echo "============================================================"
-echo " Bronze Full Load Complete"
+echo " Raw Full Load Complete"
 echo " Hive table : ${HIVE_DATABASE}.${HIVE_TABLE}"
 echo " Rows loaded: ${ROW_COUNT}"
 echo "============================================================"

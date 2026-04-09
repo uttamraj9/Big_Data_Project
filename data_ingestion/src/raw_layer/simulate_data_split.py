@@ -1,7 +1,7 @@
 """
 simulate_data_split.py
 ======================
-Bronze Layer — Simulation Data Preparation
+Raw Layer — Simulation Data Preparation
 
 PURPOSE (Training Environment Only)
 ------------------------------------

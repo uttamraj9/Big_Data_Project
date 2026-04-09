@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  workflow.xml - Bronze Layer Incremental Load
+  workflow.xml - Raw Layer Incremental Load
   =============================================
   Oozie workflow: append only new records from PostgreSQL to HDFS bronze zone.
 
@@ -27,7 +27,7 @@
     nameNode, jobTracker, hdfs_target_dir,
     db_host, db_name, db_username, db_password, hiveserver2_host
 -->
-<workflow-app name="bronze-incremental-load" xmlns="uri:oozie:workflow:0.5">
+<workflow-app name="raw-incremental-load" xmlns="uri:oozie:workflow:0.5">
 
     <start to="get-watermark"/>
 
@@ -84,7 +84,7 @@
     </action>
 
     <kill name="fail">
-        <message>Bronze incremental load FAILED at [${wf:lastErrorNode()}]: ${wf:errorMessage(wf:lastErrorNode())}</message>
+        <message>Raw incremental load FAILED at [${wf:lastErrorNode()}]: ${wf:errorMessage(wf:lastErrorNode())}</message>
     </kill>
 
     <end name="end"/>

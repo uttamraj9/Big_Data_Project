@@ -1,8 +1,8 @@
-# Bronze Layer — Data Ingestion (PostgreSQL → HDFS → Hive)
+# Raw Layer — Data Ingestion (PostgreSQL → HDFS → Hive)
 
 ## Overview
 
-This directory implements the **Bronze Layer** of the data pipeline — the raw data landing zone. It ingests synthetic credit card fraud transaction data from a local PostgreSQL database into HDFS and makes it queryable via a Hive external table.
+This directory implements the **Raw Layer** of the data pipeline — the raw data landing zone. It ingests synthetic credit card fraud transaction data from a local PostgreSQL database into HDFS and makes it queryable via a Hive external table.
 
 > **Training Environment Notice**
 > This is a simulation, not a production pipeline. PostgreSQL acts as a stand-in for a real OLTP source system. The raw dataset is a synthetic CSV file pre-split into three subsets to simulate the three ingestion patterns (full load, daily incremental, Kafka streaming) that would exist in a live environment.
@@ -47,20 +47,20 @@ data_ingestion/
 │   └── bronze/
 │       ├── simulate_data_split.py        # one-time: splits raw CSV into 3 subsets
 │       ├── ingest_to_postgres.py         # loads split CSVs into PostgreSQL
-│       ├── create_bronze_hive_table.hql  # standalone Hive DDL reference
+│       ├── create_raw_hive_table.hql  # standalone Hive DDL reference
 │       └── oozie/
 │           ├── deploy.sh                 # uploads workflows to HDFS, submits jobs
 │           ├── full_load/
 │           │   ├── workflow.xml          # Oozie: fs -> sqoop -> hive2
 │           │   ├── job.properties
-│           │   ├── create_bronze_hive_table.hql
-│           │   └── scripts/bronze_full_load.sh
+│           │   ├── create_raw_hive_table.hql
+│           │   └── scripts/raw_full_load.sh
 │           └── incremental_load/
 │               ├── workflow.xml          # Oozie: shell(watermark) -> sqoop(append)
 │               ├── coordinator.xml       # daily schedule at 10:00 AM UTC
 │               ├── job.properties
 │               └── scripts/
-│                   ├── bronze_incremental_load.sh
+│                   ├── raw_incremental_load.sh
 │                   └── get_watermark.sh  # queries MAX(Timestamp) watermark
 ├── data/
 │   ├── raw/
@@ -180,7 +180,7 @@ Splits the raw CSV into three chronological subsets that simulate different inge
 
 ```bash
 cd data_ingestion
-python3 src/bronze/simulate_data_split.py
+python3 src/raw_layer/simulate_data_split.py
 ```
 
 Expected output:
@@ -198,7 +198,7 @@ Simulation data split complete:
 ### Full load (initial setup — replaces the table)
 
 ```bash
-cd data_ingestion/src/bronze
+cd data_ingestion/src/raw_layer
 ENV_FILE=../../.env python3 ingest_to_postgres.py full
 ```
 
@@ -338,7 +338,7 @@ Or run the DDL file directly without entering the interactive shell:
 
 ```bash
 beeline -u 'jdbc:hive2://ip-172-31-12-74.eu-west-2.compute.internal:10000/' \
-  -f ~/bronze_oozie/full_load/create_bronze_hive_table.hql
+  -f ~/bronze_oozie/full_load/create_raw_hive_table.hql
 ```
 
 ---
@@ -417,7 +417,7 @@ oozie job -run \
   -oozie http://ip-172-31-12-74.eu-west-2.compute.internal:11000/oozie \
   -config ~/bronze_oozie/incremental_load/job.properties \
   -Doozie.coord.application.path= \
-  -Doozie.wf.application.path=hdfs://ip-172-31-3-251.eu-west-2.compute.internal:8020/user/ec2-user/oozie/bronze_incremental_load
+  -Doozie.wf.application.path=hdfs://ip-172-31-3-251.eu-west-2.compute.internal:8020/user/ec2-user/oozie/raw_incremental_load
 ```
 
 ### Check job status
@@ -464,7 +464,7 @@ Every day at 10:00 AM
         |
         v
 [Stage 2] Incremental Load: PostgreSQL -> HDFS Bronze
-        bronze_incremental_load.sh
+        raw_incremental_load.sh
         1. Reads MAX(Timestamp) from Hive (watermark)
         2. Runs Sqoop --incremental append to push only new rows to HDFS
         3. Hive table picks up the new files automatically (EXTERNAL table)
@@ -504,7 +504,7 @@ LOAD_TABLE=cc_fraud_trans
 
 In Jenkins → **New Item → Pipeline**:
 
-- **Name:** `bronze-incremental-load`
+- **Name:** `raw-incremental-load`
 - **Definition:** Pipeline script from SCM
 - **SCM:** Git → your repository URL
 - **Script Path:** `data_ingestion/Jenkinsfile`
@@ -518,17 +518,17 @@ The `cron('0 10 * * *')` trigger in the Jenkinsfile will schedule it automatical
 ```groovy
 Stage 1 — Install Dependencies
     Creates (or reuses) a Python virtualenv at:
-    /var/lib/jenkins/venvs/bronze_ingestion_venv
+    /var/lib/jenkins/venvs/raw_ingestion_venv
     Installs packages from requirements.txt
 
 Stage 2 — Simulate New Records in PostgreSQL
     Sources the .env credential file
-    Runs: python3 data_ingestion/src/bronze/ingest_to_postgres.py inc
+    Runs: python3 data_ingestion/src/raw_layer/ingest_to_postgres.py inc
     Appends new rows to PostgreSQL, simulating a daily data arrival
 
 Stage 3 — Incremental Load: PostgreSQL -> HDFS Bronze
     Sources the .env credential file
-    Runs: data_ingestion/src/bronze/oozie/incremental_load/scripts/bronze_incremental_load.sh
+    Runs: data_ingestion/src/raw_layer/oozie/incremental_load/scripts/raw_incremental_load.sh
     1. Reads MAX(Timestamp) from Hive via beeline
     2. Runs Sqoop incremental append to push new rows to HDFS
 ```
@@ -539,7 +539,7 @@ Stage 3 — Incremental Load: PostgreSQL -> HDFS Bronze
 
 To run the pipeline immediately without waiting for the scheduled time:
 
-1. Open Jenkins → **bronze-incremental-load** job
+1. Open Jenkins → **raw-incremental-load** job
 2. Click **Build Now**
 3. Open the build → **Console Output** to watch the live logs
 
@@ -550,7 +550,7 @@ To run the pipeline immediately without waiting for the scheduled time:
 ### Check the last build result
 
 ```
-Jenkins UI → bronze-incremental-load → Build History → latest build → Console Output
+Jenkins UI → raw-incremental-load → Build History → latest build → Console Output
 ```
 
 ### Useful console output to look for
