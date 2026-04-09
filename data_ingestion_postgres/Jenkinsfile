@@ -79,15 +79,14 @@ pipeline {
             // SSHes to the Cloudera edge node and runs bronze_incremental_load.sh there.
             // sqoop, beeline, and hdfs CLIs are only available on the edge node.
             steps {
-                withCredentials([
-                    file(credentialsId: 'my-env-file', variable: 'ENV_FILE'),
-                    sshUserPrivateKey(credentialsId: 'cloudera-edge-ssh', keyFileVariable: 'SSH_KEY')
-                ]) {
+                withCredentials([file(credentialsId: 'my-env-file', variable: 'ENV_FILE')]) {
                     sh '''
                         tr -d '\\r' < "$ENV_FILE" > temp_env && mv temp_env "$ENV_FILE"
                         set -a; source "$ENV_FILE"; set +a
 
-                        # Copy the incremental load script to the edge node and run it
+                        # Copy the incremental load script to the Cloudera edge node and run it.
+                        # sqoop, beeline, and hdfs CLIs are only available on the edge node.
+                        SSH_KEY="/var/lib/jenkins/.ssh/cloudera_edge.pem"
                         EDGE_NODE="ec2-user@13.41.167.97"
                         SCRIPT="data_ingestion_postgres/src/bronze/oozie/incremental_load/scripts/bronze_incremental_load.sh"
                         REMOTE_SCRIPT="/tmp/bronze_incremental_load_jenkins.sh"
