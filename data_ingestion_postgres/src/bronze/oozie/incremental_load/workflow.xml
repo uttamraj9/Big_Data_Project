@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  workflow.xml - Bronze Layer Incremental Load
+  =============================================
+  Oozie workflow: append only new records from PostgreSQL to HDFS bronze zone.
+
+  Triggered daily at 10:00 AM UTC by the coordinator (coordinator.xml),
+  or run on-demand via: oozie job -run -config job.properties
+
+  FLOW
+    [start]
+      -> get-watermark     (shell action + capture-output)
+            Queries MAX(Timestamp) from Hive bronze table via beeline.
+            Outputs: last_value=YYYY-MM-DD HH:MM:SS to stdout.
+            Oozie captures this and exposes it to subsequent actions.
+      -> sqoop-incremental (sqoop action)
+            Appends rows where Timestamp > captured last_value.
+            Existing HDFS files are NOT modified (incremental append).
+      -> [end]
+
+  WATERMARK PATTERN
+    get_watermark.sh writes: last_value=<timestamp>
+    Oozie captures stdout via capture-output. The value is then used as:
+      ${wf:actionData('get-watermark')['last_value']}
+
+  REQUIRED PROPERTIES in job.properties
+    nameNode, jobTracker, hdfs_target_dir,
+    db_host, db_name, db_username, db_password, hiveserver2_host
+-->
+<workflow-app name="bronze-incremental-load" xmlns="uri:oozie:workflow:0.5">
+
+    <start to="get-watermark"/>
+
+    <!-- Step 1: Get the timestamp watermark from the Hive bronze table.
+         get_watermark.sh queries MAX(Timestamp) via beeline and writes
+         last_value=<ts> to stdout. capture-output makes it available
+         to subsequent steps via wf:actionData().
+    -->
+    <action name="get-watermark">
+        <shell xmlns="uri:oozie:shell-action:0.3">
+            <job-tracker>${jobTracker}</job-tracker>
+            <name-node>${nameNode}</name-node>
+            <exec>get_watermark.sh</exec>
+            <env-var>HIVESERVER2_HOST=${hiveserver2_host}</env-var>
+            <file>get_watermark.sh#get_watermark.sh</file>
+            <capture-output/>
+        </shell>
+        <ok    to="sqoop-incremental"/>
+        <error to="fail"/>
+    </action>
+
+    <!-- Step 2: Sqoop incremental import.
+         Uses arg elements to avoid multi-line parsing issues.
+         incremental append adds new files without touching existing HDFS data.
+         last-value is the watermark captured from the previous step.
+    -->
+    <action name="sqoop-incremental">
+        <sqoop xmlns="uri:oozie:sqoop-action:0.2">
+            <job-tracker>${jobTracker}</job-tracker>
+            <name-node>${nameNode}</name-node>
+            <arg>import</arg>
+            <arg>--connect</arg>
+            <arg>jdbc:postgresql://${db_host}:5432/${db_name}</arg>
+            <arg>--username</arg>
+            <arg>${db_username}</arg>
+            <arg>--password</arg>
+            <arg>${db_password}</arg>
+            <arg>--table</arg>
+            <arg>cc_fraud_trans</arg>
+            <arg>--incremental</arg>
+            <arg>append</arg>
+            <arg>--check-column</arg>
+            <arg>Timestamp</arg>
+            <arg>--last-value</arg>
+            <arg>${wf:actionData('get-watermark')['last_value']}</arg>
+            <arg>--target-dir</arg>
+            <arg>${hdfs_target_dir}</arg>
+            <arg>--m</arg>
+            <arg>1</arg>
+            <arg>--as-textfile</arg>
+        </sqoop>
+        <ok    to="end"/>
+        <error to="fail"/>
+    </action>
+
+    <kill name="fail">
+        <message>Bronze incremental load FAILED at [${wf:lastErrorNode()}]: ${wf:errorMessage(wf:lastErrorNode())}</message>
+    </kill>
+
+    <end name="end"/>
+
+</workflow-app>

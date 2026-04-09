@@ -1,0 +1,50 @@
+<!--
+    coordinator.xml — Bronze Layer Incremental Load Coordinator
+    ============================================================
+    Schedules the bronze-incremental-load workflow to run daily at 10:00 AM UTC.
+
+    The coordinator runs between start_time and end_time (set in job.properties).
+    It triggers one workflow instance per day, passing all job.properties values
+    through to the workflow automatically.
+
+    SUBMIT THE COORDINATOR (not the workflow directly) for scheduled runs:
+      oozie job -run \
+        -oozie http://ip-172-31-12-74.eu-west-2.compute.internal:11000/oozie \
+        -config job.properties
+
+    To run a single on-demand instance instead, submit the workflow directly:
+      oozie job -run \
+        -oozie http://ip-172-31-12-74.eu-west-2.compute.internal:11000/oozie \
+        -config job.properties \
+        -Doozie.wf.application.path=<workflow_path>
+-->
+<coordinator-app
+    name="bronze-incremental-coordinator"
+    frequency="${coord:days(1)}"
+    start="${start_time}"
+    end="${end_time}"
+    timezone="UTC"
+    xmlns="uri:oozie:coordinator:0.4">
+
+    <action>
+        <workflow>
+            <!-- Points to the incremental load workflow on HDFS -->
+            <app-path>${nameNode}/user/ec2-user/oozie/bronze_incremental_load</app-path>
+            <!--
+                Pass all coordinator job properties through to the workflow
+                so the workflow uses the same DB credentials, HDFS paths, etc.
+            -->
+            <configuration>
+                <property><name>nameNode</name>         <value>${nameNode}</value></property>
+                <property><name>jobTracker</name>       <value>${jobTracker}</value></property>
+                <property><name>hdfs_target_dir</name>  <value>${hdfs_target_dir}</value></property>
+                <property><name>db_host</name>          <value>${db_host}</value></property>
+                <property><name>db_name</name>          <value>${db_name}</value></property>
+                <property><name>db_username</name>      <value>${db_username}</value></property>
+                <property><name>db_password</name>      <value>${db_password}</value></property>
+                <property><name>hiveserver2_host</name> <value>${hiveserver2_host}</value></property>
+            </configuration>
+        </workflow>
+    </action>
+
+</coordinator-app>
