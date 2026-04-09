@@ -24,7 +24,7 @@ pipeline {
     agent any
 
     environment {
-        VENV_DIR = '/var/lib/jenkins/venvs/raw_ingestion_venv'
+        VENV_DIR = '/var/lib/jenkins/venvs/unit_testing_bd'
     }
 
     stages {
