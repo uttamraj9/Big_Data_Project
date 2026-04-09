@@ -63,6 +63,11 @@ pipeline {
                         tr -d '\\r' < "$ENV_FILE" > temp_env && mv temp_env "$ENV_FILE"
                         set -a; source "$ENV_FILE"; set +a
 
+                        # Override CSV paths to current workspace — .env may contain stale absolute paths
+                        export FULL_LOAD_CSV="${WORKSPACE}/data_ingestion_postgres/data/split/full_load.csv"
+                        export INCREMENTAL_LOAD_CSV="${WORKSPACE}/data_ingestion_postgres/data/split/incremental_load.csv"
+                        export KAFKA_STREAMING_CSV="${WORKSPACE}/data_ingestion_postgres/data/split/kafka_streaming.csv"
+
                         source ${VENV_DIR}/bin/activate
                         python3 data_ingestion_postgres/src/bronze/ingest_to_postgres.py inc
                     '''
