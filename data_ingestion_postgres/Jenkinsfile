@@ -76,16 +76,28 @@ pipeline {
         }
 
         stage('Incremental Load: PostgreSQL -> HDFS Bronze') {
-            // Reads the Hive watermark and Sqoop-imports only new records
-            // from PostgreSQL into the HDFS bronze landing zone.
+            // SSHes to the Cloudera edge node and runs bronze_incremental_load.sh there.
+            // sqoop, beeline, and hdfs CLIs are only available on the edge node.
             steps {
-                withCredentials([file(credentialsId: 'my-env-file', variable: 'ENV_FILE')]) {
+                withCredentials([
+                    file(credentialsId: 'my-env-file', variable: 'ENV_FILE'),
+                    sshUserPrivateKey(credentialsId: 'cloudera-edge-ssh', keyFileVariable: 'SSH_KEY')
+                ]) {
                     sh '''
                         tr -d '\\r' < "$ENV_FILE" > temp_env && mv temp_env "$ENV_FILE"
                         set -a; source "$ENV_FILE"; set +a
 
-                        chmod +x data_ingestion_postgres/src/bronze/oozie/incremental_load/scripts/bronze_incremental_load.sh
-                        data_ingestion_postgres/src/bronze/oozie/incremental_load/scripts/bronze_incremental_load.sh
+                        # Copy the incremental load script to the edge node and run it
+                        EDGE_NODE="ec2-user@13.41.167.97"
+                        SCRIPT="data_ingestion_postgres/src/bronze/oozie/incremental_load/scripts/bronze_incremental_load.sh"
+                        REMOTE_SCRIPT="/tmp/bronze_incremental_load_jenkins.sh"
+
+                        scp -i "$SSH_KEY" -o StrictHostKeyChecking=no "$SCRIPT" "${EDGE_NODE}:${REMOTE_SCRIPT}"
+                        ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no "$EDGE_NODE" \
+                            "chmod +x ${REMOTE_SCRIPT} && \
+                             DB_HOST=${DB_HOST} DB_NAME=${DB_NAME} \
+                             DB_USERNAME=${DB_USERNAME} DB_PASSWORD=${DB_PASSWORD} \
+                             bash ${REMOTE_SCRIPT}"
                     '''
                 }
             }
