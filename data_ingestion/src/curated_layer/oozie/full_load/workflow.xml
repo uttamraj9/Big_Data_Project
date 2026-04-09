@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<workflow-app name="curated-full-load" xmlns="uri:oozie:workflow:0.5">
+
+    <start to="spark-full-load"/>
+
+    <!-- ================================================================
+         Action 1: Run the Spark full-load job
+         ================================================================ -->
+    <action name="spark-full-load">
+        <spark xmlns="uri:oozie:spark-action:0.2">
+            <job-tracker>${jobTracker}</job-tracker>
+            <name-node>${nameNode}</name-node>
+            <master>yarn</master>
+            <mode>client</mode>
+            <name>curated-full-load</name>
+            <jar>${spark_jar}</jar>
+            <spark-opts>
+                --conf spark.sql.hive.convertMetastoreParquet=false
+                --conf spark.yarn.submit.waitAppCompletion=true
+            </spark-opts>
+            <arg>${hdfs_spark_dir}/full_load.py</arg>
+            <file>${hdfs_spark_dir}/full_load.py#full_load.py</file>
+            <file>${hdfs_spark_dir}/transformations.py#transformations.py</file>
+        </spark>
+        <ok to="data-quality-check"/>
+        <error to="kill"/>
+    </action>
+
+    <!-- ================================================================
+         Action 2: Run the Great Expectations data-quality check
+         ================================================================ -->
+    <action name="data-quality-check">
+        <spark xmlns="uri:oozie:spark-action:0.2">
+            <job-tracker>${jobTracker}</job-tracker>
+            <name-node>${nameNode}</name-node>
+            <master>yarn</master>
+            <mode>client</mode>
+            <name>curated-data-quality-check</name>
+            <jar>${spark_jar}</jar>
+            <spark-opts>
+                --conf spark.sql.hive.convertMetastoreParquet=false
+                --conf spark.yarn.submit.waitAppCompletion=true
+            </spark-opts>
+            <arg>${hdfs_spark_dir}/great_expectations_suite.py</arg>
+            <file>${hdfs_spark_dir}/great_expectations_suite.py#great_expectations_suite.py</file>
+        </spark>
+        <ok to="end"/>
+        <error to="kill"/>
+    </action>
+
+    <!-- ================================================================
+         Kill node
+         ================================================================ -->
+    <kill name="kill">
+        <message>Curated full-load workflow failed – action [${wf:lastErrorNode()}] error [${wf:errorCode(wf:lastErrorNode())}] message [${wf:errorMessage(wf:lastErrorNode())}]</message>
+    </kill>
+
+    <end name="end"/>
+
+</workflow-app>
