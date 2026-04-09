@@ -91,7 +91,7 @@ pip install --quiet \
   pandas==1.5.3 \
   pyarrow==12.0.0
 
-pytest data_ingestion/src/curated_layer/tests/ -v --tb=short
+pytest data_ingestion_batch/src/curated_layer/tests/ -v --tb=short
 ```
 
 All 11 test classes should pass (one per transformation + `TestApplyAll`).
@@ -102,7 +102,7 @@ Reads the entire raw table, applies all 10 transformations, and **overwrites**
 the curated table.
 
 ```bash
-cd ~/Big_Data_Project/data_ingestion/src/curated_layer
+cd ~/Big_Data_Project/data_ingestion_batch/src/curated_layer
 
 bash scripts/curated_full_load.sh
 ```
@@ -167,7 +167,7 @@ Reads only rows from the raw table with `Timestamp` newer than the current
 maximum in the curated table, applies all transformations, and **appends**.
 
 ```bash
-cd ~/Big_Data_Project/data_ingestion/src/curated_layer
+cd ~/Big_Data_Project/data_ingestion_batch/src/curated_layer
 
 bash scripts/curated_incremental_load.sh
 ```
@@ -208,7 +208,7 @@ spark-submit \
   --deploy-mode client \
   --name curated-data-quality \
   --conf spark.sql.hive.convertMetastoreParquet=false \
-  data_ingestion/src/curated_layer/data_quality/great_expectations_suite.py
+  data_ingestion_batch/src/curated_layer/data_quality/great_expectations_suite.py
 ```
 
 The suite validates 14 expectation categories including:
@@ -236,7 +236,7 @@ Data Quality Results:
 Deploy the Oozie workflow files to HDFS and submit:
 
 ```bash
-cd ~/Big_Data_Project/data_ingestion/src/curated_layer
+cd ~/Big_Data_Project/data_ingestion_batch/src/curated_layer
 
 # Upload workflow files to HDFS
 OOZIE_BASE="hdfs://ip-172-31-3-251.eu-west-2.compute.internal:8020/user/ec2-user/oozie"
@@ -278,7 +278,7 @@ oozie job -info <JOB_ID> \
 
 Jenkins pipeline: **`curated-layer-ingestion`**
 URL: `http://13.42.152.118:8080/job/curated-layer-ingestion/`
-Jenkinsfile: `data_ingestion/src/curated_layer/Jenkinsfile`
+Jenkinsfile: `data_ingestion_batch/src/curated_layer/Jenkinsfile`
 
 ### One-time Jenkins Setup
 
@@ -308,7 +308,7 @@ Build Now (select LOAD_MODE)
         |
         v
 [Stage 2] Unit Tests
-          pytest data_ingestion/src/curated_layer/tests/ -v
+          pytest data_ingestion_batch/src/curated_layer/tests/ -v
           Runs 11 test classes against mock data (no cluster needed)
           Publishes JUnit XML results to Jenkins
         |
