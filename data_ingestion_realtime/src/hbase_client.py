@@ -35,8 +35,9 @@ import happybase
 
 log = logging.getLogger(__name__)
 
-HBASE_TABLE  = "cc_fraud_realtime"
+HBASE_TABLE   = "cc_fraud_realtime"
 COLUMN_FAMILY = "cf"
+ROW_KEY_FIELD = "Transaction_ID"   # primary key field in the API payload
 
 
 class HBaseClient:
@@ -109,21 +110,21 @@ class HBaseClient:
         ----------
         row : dict
             A transaction record as returned by the FastAPI /data endpoint.
-            The ``trans_num`` field is used as the HBase row key.
+            The ``Transaction_ID`` field is used as the HBase row key.
 
         Raises
         ------
         ValueError
-            If ``trans_num`` is missing from the row.
+            If the row key field is missing from the row.
         """
-        row_key = str(row.get("trans_num", "")).strip()
+        row_key = str(row.get(ROW_KEY_FIELD, "")).strip()
         if not row_key:
-            raise ValueError("Row is missing required field 'trans_num'")
+            raise ValueError(f"Row is missing required field '{ROW_KEY_FIELD}'")
 
         data = {
             f"{COLUMN_FAMILY}:{col}".encode(): str(val).encode()
             for col, val in row.items()
-            if col != "trans_num" and val is not None
+            if col != ROW_KEY_FIELD and val is not None
         }
 
         self._table.put(row_key.encode(), data)
@@ -138,14 +139,14 @@ class HBaseClient:
         """
         with self._table.batch(batch_size=len(rows)) as batch:
             for row in rows:
-                row_key = str(row.get("trans_num", "")).strip()
+                row_key = str(row.get(ROW_KEY_FIELD, "")).strip()
                 if not row_key:
-                    log.warning("Skipping row without trans_num: %s", row)
+                    log.warning("Skipping row without %s: %s", ROW_KEY_FIELD, row)
                     continue
                 data = {
                     f"{COLUMN_FAMILY}:{col}".encode(): str(val).encode()
                     for col, val in row.items()
-                    if col != "trans_num" and val is not None
+                    if col != ROW_KEY_FIELD and val is not None
                 }
                 batch.put(row_key.encode(), data)
 
@@ -153,9 +154,9 @@ class HBaseClient:
     # Read helpers (for verification)
     # ------------------------------------------------------------------
 
-    def get_transaction(self, trans_num: str) -> dict:
-        """Fetch a single transaction by trans_num."""
-        raw = self._table.row(trans_num.encode())
+    def get_transaction(self, transaction_id: str) -> dict:
+        """Fetch a single transaction by Transaction_ID."""
+        raw = self._table.row(transaction_id.encode())
         return {
             k.decode().split(":")[1]: v.decode()
             for k, v in raw.items()
@@ -165,7 +166,7 @@ class HBaseClient:
         """Return up to ``limit`` rows from the table (for smoke testing)."""
         results = []
         for key, data in self._table.scan(limit=limit):
-            record = {"trans_num": key.decode()}
+            record = {ROW_KEY_FIELD: key.decode()}
             record.update({
                 k.decode().split(":")[1]: v.decode()
                 for k, v in data.items()

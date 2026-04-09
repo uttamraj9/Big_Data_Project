@@ -185,8 +185,8 @@ def run_producer(cfg: dict):
                 continue
 
             for row in rows:
-                # Use trans_num as the Kafka message key for partition locality
-                key = str(row.get("trans_num", ""))
+                # Use Transaction_ID as the Kafka message key for partition locality
+                key = str(row.get("Transaction_ID", row.get("trans_num", "")))
                 future = producer.send(topic, key=key, value=row)
                 try:
                     future.get(timeout=10)

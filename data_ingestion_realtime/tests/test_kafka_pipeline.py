@@ -86,7 +86,7 @@ class TestFetchBatch:
 
             result = fetch_batch("http://localhost:5310", offset=0, limit=100)
             assert len(result) == len(sample_rows)
-            assert result[0]["trans_num"] == "t001"
+            assert result[0]["Transaction_ID"] == "TXN_001"
 
     def test_passes_pagination_params(self, sample_rows):
         with patch("requests.get") as mock_get:
@@ -124,20 +124,20 @@ class TestKafkaProducer:
 
         assert producer.send.call_count == len(sample_rows)
 
-    def test_uses_trans_num_as_key(self, sample_rows, mock_kafka_producer):
+    def test_uses_transaction_id_as_key(self, sample_rows, mock_kafka_producer):
         from kafka_producer import create_producer
         producer = create_producer("localhost:9092")
-        producer.send("cc_fraud_stream", key="t001", value=sample_rows[0])
+        producer.send("cc_fraud_stream", key="TXN_001", value=sample_rows[0])
 
         call_kwargs = producer.send.call_args
-        assert call_kwargs[1]["key"] == "t001"
+        assert call_kwargs[1]["key"] == "TXN_001"
 
     def test_value_is_serialisable(self, sample_rows):
         """Every sample row must round-trip through JSON without error."""
         for row in sample_rows:
             encoded = json.dumps(row, default=str).encode("utf-8")
             decoded = json.loads(encoded.decode("utf-8"))
-            assert decoded["trans_num"] == row["trans_num"]
+            assert decoded["Transaction_ID"] == row["Transaction_ID"]
 
 
 # ===========================================================================
@@ -160,18 +160,18 @@ class TestHBaseClient:
 
             mock_table.put.assert_called_once()
             put_args = mock_table.put.call_args[0]
-            # Row key should be bytes of trans_num
-            assert put_args[0] == b"t001"
+            # Row key should be bytes of Transaction_ID
+            assert put_args[0] == b"TXN_001"
 
-    def test_put_transaction_raises_on_missing_trans_num(self):
+    def test_put_transaction_raises_on_missing_transaction_id(self):
         with patch("happybase.Connection"):
             client = HBaseClient(host="localhost")
             client._table = MagicMock()
 
-            with pytest.raises(ValueError, match="trans_num"):
-                client.put_transaction({"amt": 100.0})
+            with pytest.raises(ValueError, match="Transaction_ID"):
+                client.put_transaction({"Transaction_Amount": 100.0})
 
-    def test_put_batch_skips_rows_without_trans_num(self, sample_rows):
+    def test_put_batch_skips_rows_without_transaction_id(self, sample_rows):
         with patch("happybase.Connection"):
             client = HBaseClient(host="localhost")
             mock_table = MagicMock()
@@ -180,7 +180,7 @@ class TestHBaseClient:
             mock_table.batch.return_value.__exit__  = MagicMock(return_value=False)
             client._table = mock_table
 
-            rows_with_bad = sample_rows + [{"amt": 99.0}]  # missing trans_num
+            rows_with_bad = sample_rows + [{"Transaction_Amount": 99.0}]  # missing Transaction_ID
             client.put_batch(rows_with_bad)
 
             # Only valid rows should be put

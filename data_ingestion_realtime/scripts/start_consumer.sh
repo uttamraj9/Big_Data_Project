@@ -26,6 +26,6 @@ echo " Source : ${SRC_DIR}/kafka_consumer.py"
 echo "============================================================"
 echo ""
 
-python3 "${SRC_DIR}/kafka_consumer.py" \
+python3.12 "${SRC_DIR}/kafka_consumer.py" \
     --config "${CONFIG}" \
     "$@"
