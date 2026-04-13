@@ -24,6 +24,8 @@ spec:
       - name: fraud-predicter
         image: rdv100/predict_fraud:2.8
         env:
+        - name: HADOOP_USER_NAME
+          value: "hive"
         - name: HIVE_METASTORE_URIS
           value: "thrift://172.31.6.42:9083"
         - name: HBASE_HOST
