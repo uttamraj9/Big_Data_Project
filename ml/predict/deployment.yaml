@@ -9,6 +9,16 @@ spec:
     spec:
       nodeSelector:
         kubernetes.io/hostname: ip-172-31-8-235.eu-west-2.compute.internal
+      hostAliases:
+      - ip: "172.31.6.42"
+        hostnames:
+        - "ip-172-31-6-42.eu-west-2.compute.internal"
+      - ip: "172.31.3.251"
+        hostnames:
+        - "ip-172-31-3-251.eu-west-2.compute.internal"
+      - ip: "172.31.3.85"
+        hostnames:
+        - "ip-172-31-3-85.eu-west-2.compute.internal"
       restartPolicy: Never
       containers:
       - name: fraud-predicter
