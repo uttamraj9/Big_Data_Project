@@ -9,7 +9,7 @@ pipeline {
     stages{
         stage("Clone Repository"){
             steps{
-                git url: 'https://github.com/tc349/Big_Data_Project.git', branch: 'feature/ml-predict'
+                git url: 'https://github.com/uttamraj9/Big_Data_Project.git', branch: 'feature/ml-predict'
             }
         }
         stage('Build Docker Image') {
