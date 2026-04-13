@@ -7,10 +7,25 @@ spec:
   ttlSecondsAfterFinished: 3600
   template:
     spec:
+      nodeSelector:
+        kubernetes.io/hostname: ip-172-31-8-235.eu-west-2.compute.internal
       restartPolicy: Never
       containers:
       - name: fraud-predicter
-        image: rdv100/predict_fraud:1.3
+        image: rdv100/predict_fraud:2.8
+        env:
+        - name: HIVE_METASTORE_URIS
+          value: "thrift://172.31.6.42:9083"
+        - name: HBASE_HOST
+          value: "172.31.6.42"
+        - name: HBASE_PORT
+          value: "9090"
+        - name: HBASE_TABLE
+          value: "cc_fraud_realtime"
+        - name: PREDICTIONS_DB
+          value: "bd_class_project"
+        - name: PREDICTIONS_TABLE
+          value: "predictions_realtime"
         volumeMounts:
         - name: model
           mountPath: /app/model

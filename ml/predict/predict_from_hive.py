@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import os
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import (
     regexp_replace, to_timestamp, hour, dayofweek, dayofmonth,
@@ -8,9 +9,11 @@ from pyspark.ml import PipelineModel
 import sys
 
 def main():
+    hive_uri = os.environ.get("HIVE_METASTORE_URIS", "thrift://172.31.6.42:9083")
+
     spark = (SparkSession.builder
              .appName("prediction-cron")
-             .config("hive.metastore.uris", "thrift://18.134.163.221:9083")
+             .config("hive.metastore.uris", hive_uri)
              .enableHiveSupport()
              .getOrCreate())
 
@@ -43,12 +46,12 @@ def main():
     )
 
     categories = {
-    "transaction_type":    ["pos","bank_transfer","online","atm_withdrawal"],
-    "device_type":         ["mobile","tablet","laptop"],
-    "location":            ["tokyo","mumbai","london","sydney","new_york"],
-    "merchant_category":   ["restaurants","clothing","travel","groceries","electronics"],
-    "card_type":           ["mastercard","amex","discover","visa"],
-    "authentication_method":["pin","password","biometric","otp"]
+        "transaction_type":       ["pos", "bank_transfer", "online", "atm_withdrawal"],
+        "device_type":            ["mobile", "tablet", "laptop"],
+        "location":               ["tokyo", "mumbai", "london", "sydney", "new_york"],
+        "merchant_category":      ["restaurants", "clothing", "travel", "groceries", "electronics"],
+        "card_type":              ["mastercard", "amex", "discover", "visa"],
+        "authentication_method":  ["pin", "password", "biometric", "otp"]
     }
 
     df2 = df1
@@ -58,14 +61,12 @@ def main():
         for v in vals:
             df2 = df2.withColumn(f"{c}_{v}", when(col(c) == v, 1).otherwise(0))
 
-    df_ready = df2.drop(*(list(categories.keys()) + ["timestamp","ts"]))
+    df_ready = df2.drop(*(list(categories.keys()) + ["timestamp", "ts"]))
 
     pipeline = PipelineModel.load("file:///app/model")
-    scored  = pipeline.transform(df_ready)
+    scored   = pipeline.transform(df_ready)
 
-    preds   = scored.select("transaction_id","prediction")
-    # out_df  = raw_df.join(preds, on="transaction_id", how="inner")
-    # keep only the first prediction per transaction
+    preds      = scored.select("transaction_id", "prediction")
     uniq_preds = preds.dropDuplicates(["transaction_id"])
 
     out_df = raw_df.join(uniq_preds, on="transaction_id", how="inner")

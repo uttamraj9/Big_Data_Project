@@ -47,13 +47,13 @@ categorical_cols = [
 
 # Create indexers and encoders
 indexers = [
-    StringIndexer(inputCol=col, outputCol=col + "_Index", handleInvalid="keep")
-    for col in categorical_cols
+    StringIndexer(inputCol=cat_col, outputCol=cat_col + "_Index", handleInvalid="keep")
+    for cat_col in categorical_cols
 ]
 
 encoders = [
-    OneHotEncoder(inputCol=col + "_Index", outputCol=col + "_Vec")
-    for col in categorical_cols
+    OneHotEncoder(inputCol=cat_col + "_Index", outputCol=cat_col + "_Vec")
+    for cat_col in categorical_cols
 ]
 
 # Build pipeline
@@ -79,8 +79,6 @@ vec_cols = [
     "card_type_Vec",
     "authentication_method_Vec"
 ]
-
-print(type(col))
 
 for vec in vec_cols:
     arr_col = vec + "_arr"

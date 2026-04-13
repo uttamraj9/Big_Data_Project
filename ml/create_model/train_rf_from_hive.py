@@ -1,6 +1,7 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+import os
 from pyspark.sql import SparkSession
 from pyspark.ml.feature import VectorAssembler
 from pyspark.ml.classification import RandomForestClassifier
@@ -8,10 +9,12 @@ from pyspark.ml import Pipeline
 from pyspark.ml.evaluation import BinaryClassificationEvaluator
 
 def main():
+    hive_uri = os.environ.get("HIVE_METASTORE_URIS", "thrift://172.31.6.42:9083")
+
     spark = (
         SparkSession.builder
             .appName("RF_from_Hive")
-            .config("hive.metastore.uris", "thrift://18.134.163.221:9083")
+            .config("hive.metastore.uris", hive_uri)
             .enableHiveSupport()
             .getOrCreate()
     )
@@ -30,7 +33,7 @@ def main():
     df = df.drop(*to_drop)
 
     feature_cols = [c for c in df.columns if c != label_col]
-    assembler = VectorAssembler(inputCols=feature_cols, outputCol="features")
+    assembler = VectorAssembler(inputCols=feature_cols, outputCol="features", handleInvalid="keep")
 
     rf = RandomForestClassifier(
         featuresCol="features",

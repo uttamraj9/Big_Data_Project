@@ -2,12 +2,12 @@ pipeline {
     agent any
     environment {
         VENV_DIR = 'venv'
-        DOCKER_IMAGE = 'rdv100/predict_fraud:2.7'
+        DOCKER_IMAGE = 'rdv100/predict_fraud:2.8'
         KUBECONFIG = credentials('kubeconfig-file')
         KUBE_NAMESPACE  = 'default'
     }
     stages{
-        stage("Cone Repository"){
+        stage("Clone Repository"){
             steps{
                 git url: 'https://github.com/tc349/Big_Data_Project.git', branch: 'feature/ml-predict'
             }
