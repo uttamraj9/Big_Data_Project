@@ -1,0 +1,69 @@
+pipeline {
+  agent {
+    kubernetes {
+      label 'docker-agent'
+      yaml """
+apiVersion: v1
+kind: Pod
+spec:
+  containers:
+  - name: jnlp
+    image: jenkins/inbound-agent:latest
+    args:
+      - "\${computer.jnlpmac}"
+      - "\${computer.name}"
+  - name: docker
+    image: docker:23.0.1-dind
+    securityContext:
+      privileged: true
+    env:
+      - name: DOCKER_TLS_CERTDIR
+        value: ""
+    command:
+      - dockerd-entrypoint.sh
+    args:
+      - --host=tcp://0.0.0.0:2375
+      - --host=unix:///var/run/docker.sock
+    volumeMounts:
+      - name: docker-graph-storage
+        mountPath: /var/lib/docker
+  volumes:
+    - name: docker-graph-storage
+      emptyDir: {}
+"""
+    }
+  }
+
+  environment {
+    DOCKER_HOST = 'tcp://localhost:2375'
+    DOCKER_IMAGE = "usman57/rf-model"
+    DOCKER_TAG    = "latest"
+  }
+
+  stages {
+    stage('Checkout') {
+      steps {
+        git branch: 'feature/transform-and-model', url: 'https://github.com/tc349/Big_Data_Project.git'
+      }
+    }
+
+    stage('Build & Push Docker Image') {
+      steps {
+        container('docker') {
+          sh 'docker build -t $DOCKER_IMAGE:$DOCKER_TAG .'
+          sh 'docker login -u $DOCKER_USER -p $DOCKER_PASS'
+          sh 'docker push $DOCKER_IMAGE:$DOCKER_TAG'
+        }
+      }
+    }
+
+    stage('Deploy to Kubernetes') {
+      steps {
+        withKubeConfig([credentialsId: 'kubeconfig']) {
+          sh 'kubectl apply -f deployment.yaml'
+          sh 'kubectl rollout status deployment/rf-model-deployment'
+        }
+      }
+    }
+  }
+}

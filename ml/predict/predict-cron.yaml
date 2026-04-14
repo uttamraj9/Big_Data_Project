@@ -3,27 +3,46 @@ kind: CronJob
 metadata:
   name: fraud-predict-cron
 spec:
-  # run the job every minute
   schedule: "*/1 * * * *"
-  # don’t start a new job if the previous is still running
   concurrencyPolicy: Forbid
-  # if the controller is down or misses a schedule, only retry for 30s
   startingDeadlineSeconds: 30
-
   jobTemplate:
     spec:
-      # retry twice on failure
       backoffLimit: 2
       template:
         spec:
+          nodeSelector:
+            kubernetes.io/hostname: ip-172-31-8-235.eu-west-2.compute.internal
+          hostAliases:
+          - ip: "172.31.6.42"
+            hostnames:
+            - "ip-172-31-6-42.eu-west-2.compute.internal"
+          - ip: "172.31.3.251"
+            hostnames:
+            - "ip-172-31-3-251.eu-west-2.compute.internal"
+          - ip: "172.31.3.85"
+            hostnames:
+            - "ip-172-31-3-85.eu-west-2.compute.internal"
           restartPolicy: Never
           containers:
           - name: fraud-predicter
-            image: rdv100/predict_fraud:2.2
-            imagePullPolicy: IfNotPresent
+            image: rdv100/predict_fraud:2.8
+            imagePullPolicy: Always
             env:
+            - name: HADOOP_USER_NAME
+              value: "hive"
             - name: HIVE_METASTORE_URIS
-              value: "thrift://18.134.163.221:9083"
+              value: "thrift://172.31.6.42:9083"
+            - name: HBASE_HOST
+              value: "172.31.6.42"
+            - name: HBASE_PORT
+              value: "9090"
+            - name: HBASE_TABLE
+              value: "cc_fraud_realtime"
+            - name: PREDICTIONS_DB
+              value: "bd_class_project"
+            - name: PREDICTIONS_TABLE
+              value: "predictions_realtime"
             volumeMounts:
             - name: model
               mountPath: /app/model

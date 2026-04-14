@@ -14,7 +14,10 @@ spec:
       restartPolicy: Never
       containers:
       - name: rf-trainer-container
-        image: rdv100/train_rf:1.1
+        image: rdv100/train_rf:1.5
+        env:
+        - name: HIVE_METASTORE_URIS
+          value: "thrift://172.31.6.42:9083"
         volumeMounts:
         - name: model-output
           mountPath: /app/output

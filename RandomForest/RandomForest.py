@@ -58,6 +58,12 @@ train_df, test_df = df.randomSplit([0.7, 0.3], seed=42)
 # Train model
 model = pipeline.fit(train_df)
 
+model_path = "file:///home/ec2-user/BigData_May/bd_class_project/ml/randomforest_pipeline_model"
+
+print("Saving model now...")
+model.save(model_path)
+print("Model saved.")
+
 # Predictions
 predictions = model.transform(test_df)
 
