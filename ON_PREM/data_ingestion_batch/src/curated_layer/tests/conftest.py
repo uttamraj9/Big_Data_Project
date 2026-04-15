@@ -13,12 +13,16 @@ mock_df
     A small synthetic DataFrame that mimics the ``cc_fraud_trans`` schema.
     It deliberately includes:
 
-    * One exact duplicate row (same ``trans_num``) to test dedup logic.
-    * Rows with ``amt > 500`` and ``txn_hour`` in 0-5 (via a midnight
-      timestamp) to exercise the ``flag_high_risk`` transformation.
-    * Valid WGS-84 lat/long pairs for both cardholder and merchant.
-    * Valid ``dob`` strings in ``yyyy-MM-dd`` format so ``calculate_age``
-      can be tested.
+    * One exact duplicate row (same ``transaction_id``) to test dedup logic.
+    * Rows with ``transaction_amount > 500`` and timestamps in the 00-05 hour
+      window (midnight / 02:00) to exercise the ``flag_high_risk`` transform.
+    * Biometric ``authentication_method`` values so ``encode_gender`` logic
+      can be verified (biometric/face_recognition/fingerprint → 1, others → 0).
+    * A row with NULL ``transaction_amount`` and NULL ``merchant_category``
+      to test the null-imputation logic in ``handle_nulls``.
+    * Various amounts spanning all four ``amt_bucket`` categories.
+    * Positive ``card_age`` integers for ``calculate_age``.
+    * Non-negative ``transaction_distance`` values for ``calculate_distance``.
 """
 
 import pytest
@@ -41,22 +45,27 @@ from pyspark.sql.types import (
 
 CC_FRAUD_SCHEMA = StructType(
     [
-        StructField("trans_num", StringType(), True),
-        StructField("Timestamp", TimestampType(), True),
-        StructField("cc_num", StringType(), True),
-        StructField("merchant", StringType(), True),
-        StructField("category", StringType(), True),
-        StructField("amt", DoubleType(), True),
-        StructField("first", StringType(), True),
-        StructField("last", StringType(), True),
-        StructField("gender", StringType(), True),
-        StructField("lat", DoubleType(), True),
-        StructField("long", DoubleType(), True),
-        StructField("city_pop", IntegerType(), True),
-        StructField("dob", StringType(), True),
-        StructField("merch_lat", DoubleType(), True),
-        StructField("merch_long", DoubleType(), True),
-        StructField("is_fraud", IntegerType(), True),
+        StructField("transaction_id", StringType(), True),
+        StructField("user_id", StringType(), True),
+        StructField("transaction_amount", DoubleType(), True),
+        StructField("transaction_type", StringType(), True),
+        StructField("timestamp", TimestampType(), True),
+        StructField("account_balance", DoubleType(), True),
+        StructField("device_type", StringType(), True),
+        StructField("location", StringType(), True),
+        StructField("merchant_category", StringType(), True),
+        StructField("ip_address_flag", IntegerType(), True),
+        StructField("previous_fraudulent_activity", IntegerType(), True),
+        StructField("daily_transaction_count", IntegerType(), True),
+        StructField("avg_transaction_amount_7d", DoubleType(), True),
+        StructField("failed_transaction_count_7d", IntegerType(), True),
+        StructField("card_type", StringType(), True),
+        StructField("card_age", IntegerType(), True),
+        StructField("transaction_distance", DoubleType(), True),
+        StructField("authentication_method", StringType(), True),
+        StructField("risk_score", DoubleType(), True),
+        StructField("is_weekend", IntegerType(), True),
+        StructField("fraud_label", IntegerType(), True),
     ]
 )
 
@@ -100,18 +109,20 @@ def mock_df(spark):
 
     Data design notes
     ~~~~~~~~~~~~~~~~~
-    * Row index 1 is an exact duplicate of row index 0 (same ``trans_num``
+    * Row index 1 is an exact duplicate of row index 0 (same ``transaction_id``
       ``"TXN001"``).  After ``remove_duplicates`` only one should remain.
-    * Rows 2 and 3 have ``amt > 500`` and timestamps in the 00–05 hour window
-      (midnight / 02:00) so they can potentially trigger ``high_risk`` once
-      ``txn_velocity_day > 3`` on the same day.
-    * Rows 4–7 cover different genders (``"M"``, ``"F"``, ``None``,
-      ``"unknown"``), various amounts spanning all four buckets, and a
-      variety of dates/times for time-feature tests.
-    * All ``lat``/``long``/``merch_lat``/``merch_long`` values are realistic
-      US coordinates.
-    * All ``dob`` values are ``yyyy-MM-dd`` strings representing adults (age
-      > 18 at transaction time).
+    * Rows 2 and 3 share ``user_id="USER002"`` on the same date so that
+      ``transaction_velocity`` counts them together.  Both have
+      ``transaction_amount > 500`` and timestamps in the 00-05 window, allowing
+      ``flag_high_risk`` to trigger once velocity exceeds the threshold.
+    * Rows 2, 3, and 5 use biometric ``authentication_method`` values
+      (``biometric``, ``face_recognition``, ``fingerprint``) → ``gender_encoded=1``.
+      All other rows use non-biometric methods (``pin``, ``password``, ``otp``,
+      ``None``) → ``gender_encoded=0``.
+    * Row 6 has NULL ``transaction_amount`` (→ 0.0), NULL ``merchant_category``
+      (→ "unknown"), and NULL ``transaction_type`` (→ "unknown") to exercise
+      the fill logic in ``handle_nulls``.
+    * Row 7 has ``transaction_amount=1500.0`` (very_high bucket) and ``fraud_label=1``.
 
     Returns
     -------
@@ -119,157 +130,200 @@ def mock_df(spark):
         8-row DataFrame conforming to ``CC_FRAUD_SCHEMA``.
     """
     rows = [
-        # Row 0 – will be kept (original), amt 5.0 → "low" bucket
+        # Row 0 – will be kept (original); amt 5.0 → "low" bucket; pin auth → 0
+        (
+            "TXN001",          # transaction_id
+            "USER001",          # user_id
+            5.0,                # transaction_amount
+            "purchase",         # transaction_type
+            datetime(2023, 6, 15, 14, 30, 0),  # timestamp
+            1200.0,             # account_balance
+            "mobile",           # device_type
+            "New York",         # location
+            "grocery_pos",      # merchant_category
+            0,                  # ip_address_flag
+            0,                  # previous_fraudulent_activity
+            1,                  # daily_transaction_count
+            25.0,               # avg_transaction_amount_7d
+            0,                  # failed_transaction_count_7d
+            "visa",             # card_type
+            3,                  # card_age
+            5.2,                # transaction_distance
+            "pin",              # authentication_method
+            0.1,                # risk_score
+            0,                  # is_weekend
+            0,                  # fraud_label
+        ),
+        # Row 1 – EXACT DUPLICATE of Row 0 (same transaction_id TXN001)
         (
             "TXN001",
-            datetime(2023, 6, 15, 14, 30, 0),
-            "4111111111111111",
-            "merchant_a",
-            "grocery_pos",
+            "USER001",
             5.0,
-            "Alice",
-            "Smith",
-            "F",
-            40.7128,
-            -74.0060,
-            8_336_817,
-            "1985-03-22",
-            40.7580,
-            -73.9855,
+            "purchase",
+            datetime(2023, 6, 15, 14, 30, 0),
+            1200.0,
+            "mobile",
+            "New York",
+            "grocery_pos",
+            0,
+            0,
+            1,
+            25.0,
+            0,
+            "visa",
+            3,
+            5.2,
+            "pin",
+            0.1,
+            0,
             0,
         ),
-        # Row 1 – EXACT DUPLICATE of Row 0 (same trans_num TXN001)
-        (
-            "TXN001",
-            datetime(2023, 6, 15, 14, 30, 0),
-            "4111111111111111",
-            "merchant_a",
-            "grocery_pos",
-            5.0,
-            "Alice",
-            "Smith",
-            "F",
-            40.7128,
-            -74.0060,
-            8_336_817,
-            "1985-03-22",
-            40.7580,
-            -73.9855,
-            0,
-        ),
-        # Row 2 – high-value midnight transaction (amt=750, hour=0)
+        # Row 2 – high-value midnight transaction; biometric auth → gender_encoded=1
         (
             "TXN002",
-            datetime(2023, 6, 15, 0, 15, 0),
-            "4222222222222222",
-            "merchant_b",
-            "shopping_net",
+            "USER002",
             750.0,
-            "Bob",
-            "Jones",
-            "M",
-            34.0522,
-            -118.2437,
-            3_898_747,
-            "1978-11-05",
-            34.0195,
-            -118.4912,
+            "purchase",
+            datetime(2023, 6, 15, 0, 15, 0),
+            500.0,
+            "desktop",
+            "Los Angeles",
+            "shopping_net",
+            1,
+            1,
+            1,
+            400.0,
+            2,
+            "mastercard",
+            5,
+            15.3,
+            "biometric",
+            0.85,
+            0,
             1,
         ),
-        # Row 3 – high-value early-morning transaction (amt=820, hour=2)
-        #         same card + same day as Row 2 → velocity will be 2 here
+        # Row 3 – high-value early-morning; same user + same day as Row 2;
+        #         face_recognition auth → gender_encoded=1
         (
             "TXN003",
-            datetime(2023, 6, 15, 2, 45, 0),
-            "4222222222222222",
-            "merchant_c",
-            "shopping_pos",
+            "USER002",
             820.0,
-            "Bob",
-            "Jones",
-            "M",
-            34.0522,
-            -118.2437,
-            3_898_747,
-            "1978-11-05",
-            34.0689,
-            -118.3073,
+            "purchase",
+            datetime(2023, 6, 15, 2, 45, 0),
+            450.0,
+            "mobile",
+            "Los Angeles",
+            "shopping_pos",
+            1,
+            1,
+            2,
+            400.0,
+            2,
+            "mastercard",
+            5,
+            18.7,
+            "face_recognition",
+            0.9,
+            0,
             1,
         ),
-        # Row 4 – medium amount (amt=55.0), weekend Saturday
+        # Row 4 – medium amount (55.0); weekend Saturday; password auth → 0
         (
             "TXN004",
-            datetime(2023, 6, 17, 10, 0, 0),  # Saturday
-            "4333333333333333",
-            "merchant_d",
-            "food_dining",
+            "USER003",
             55.0,
-            "Carol",
-            "Williams",
-            "F",
-            41.8781,
-            -87.6298,
-            2_696_555,
-            "1990-07-14",
-            41.8827,
-            -87.6233,
+            "purchase",
+            datetime(2023, 6, 17, 10, 0, 0),  # Saturday
+            800.0,
+            "mobile",
+            "Chicago",
+            "food_dining",
+            0,
+            0,
+            1,
+            50.0,
+            0,
+            "visa",
+            7,
+            2.1,
+            "password",
+            0.2,
+            1,
             0,
         ),
-        # Row 5 – high amount (amt=450.0), evening
+        # Row 5 – high amount (450.0); fingerprint auth → gender_encoded=1
         (
             "TXN005",
-            datetime(2023, 6, 16, 20, 0, 0),
-            "4444444444444444",
-            "merchant_e",
-            "health_fitness",
+            "USER004",
             450.0,
-            "David",
-            "Brown",
-            "M",
-            29.7604,
-            -95.3698,
-            2_304_580,
-            "1972-01-30",
-            29.7522,
-            -95.3758,
+            "purchase",
+            datetime(2023, 6, 16, 20, 0, 0),
+            2000.0,
+            "desktop",
+            "Houston",
+            "health_fitness",
+            0,
+            0,
+            1,
+            300.0,
+            0,
+            "amex",
+            10,
+            3.5,
+            "fingerprint",
+            0.3,
+            0,
             0,
         ),
-        # Row 6 – NULL gender (will be filled to "unknown"), amt NULL (→ 0.0)
+        # Row 6 – NULL transaction_amount (→ 0.0), NULL merchant_category
+        #         (→ "unknown"), NULL transaction_type (→ "unknown"),
+        #         NULL authentication_method (→ gender_encoded=0)
         (
             "TXN006",
+            "USER005",
+            None,               # transaction_amount → filled to 0.0
+            None,               # transaction_type   → filled to "unknown"
             datetime(2023, 6, 18, 9, 0, 0),
-            "4555555555555555",
-            "merchant_f",
-            "gas_transport",
-            None,
-            "Eve",
-            "Davis",
-            None,
-            47.6062,
-            -122.3321,
-            737_015,
-            "2000-05-19",
-            47.6101,
-            -122.3420,
+            350.0,
+            "mobile",
+            "Seattle",
+            None,               # merchant_category → filled to "unknown"
+            0,
+            0,
+            1,
+            20.0,
+            1,
+            "visa",
+            4,
+            1.2,
+            None,               # authentication_method → gender_encoded=0
+            0.15,
+            0,
             0,
         ),
-        # Row 7 – very_high amount (amt=1500), fraud, Sunday
+        # Row 7 – very_high amount (1500.0); otp auth → gender_encoded=0;
+        #         fraud_label=1; early-morning Sunday
         (
             "TXN007",
-            datetime(2023, 6, 18, 3, 30, 0),
-            "4666666666666666",
-            "merchant_g",
-            "misc_net",
+            "USER006",
             1500.0,
-            "Frank",
-            "Miller",
-            "M",
-            33.4484,
-            -112.0740,
-            1_608_139,
-            "1965-08-12",
-            33.5722,
-            -112.0901,
+            "purchase",
+            datetime(2023, 6, 18, 3, 30, 0),
+            100.0,
+            "desktop",
+            "Phoenix",
+            "misc_net",
+            1,
+            2,
+            1,
+            600.0,
+            3,
+            "mastercard",
+            6,
+            25.0,
+            "otp",
+            0.95,
+            1,
             1,
         ),
     ]

@@ -49,20 +49,20 @@ class TestRemoveDuplicates:
 
     def test_duplicate_count_reduced(self, mock_df):
         """The output should have fewer rows than the input because of the
-        duplicate ``trans_num`` row."""
+        duplicate ``transaction_id`` row."""
         original_count = mock_df.count()
         result = remove_duplicates(mock_df)
         assert result.count() < original_count, (
             "Expected row count to decrease after removing duplicates."
         )
 
-    def test_all_trans_num_unique(self, mock_df):
-        """Every ``trans_num`` in the result must be unique."""
+    def test_all_transaction_id_unique(self, mock_df):
+        """Every ``transaction_id`` in the result must be unique."""
         result = remove_duplicates(mock_df)
         total = result.count()
-        distinct = result.select("trans_num").distinct().count()
+        distinct = result.select("transaction_id").distinct().count()
         assert total == distinct, (
-            f"Found {total - distinct} duplicate trans_num value(s) after dedup."
+            f"Found {total - distinct} duplicate transaction_id value(s) after dedup."
         )
 
 
@@ -77,24 +77,24 @@ class TestHandleNulls:
         """After applying ``handle_nulls`` the key columns must have no NULLs
         (rows that are impossible to fill are dropped)."""
         result = handle_nulls(mock_df)
-        for col in ["trans_num", "Timestamp", "cc_num", "is_fraud"]:
+        for col in ["transaction_id", "timestamp", "user_id", "fraud_label"]:
             null_count = result.filter(F.col(col).isNull()).count()
             assert null_count == 0, (
                 f"Column '{col}' still contains {null_count} NULL(s) after handle_nulls."
             )
 
-    def test_amt_filled_to_zero(self, mock_df):
-        """NULL ``amt`` values must be replaced with 0.0."""
+    def test_transaction_amount_filled_to_zero(self, mock_df):
+        """NULL ``transaction_amount`` values must be replaced with 0.0."""
         result = handle_nulls(mock_df)
-        null_amt = result.filter(F.col("amt").isNull()).count()
-        assert null_amt == 0, "NULL amt rows should be filled to 0.0."
+        null_amt = result.filter(F.col("transaction_amount").isNull()).count()
+        assert null_amt == 0, "NULL transaction_amount rows should be filled to 0.0."
 
-    def test_category_filled_to_unknown(self, mock_df):
-        """NULL ``category`` values must be replaced with the string
+    def test_merchant_category_filled_to_unknown(self, mock_df):
+        """NULL ``merchant_category`` values must be replaced with the string
         ``"unknown"``."""
         result = handle_nulls(mock_df)
-        null_cat = result.filter(F.col("category").isNull()).count()
-        assert null_cat == 0, "NULL category rows should be filled to 'unknown'."
+        null_cat = result.filter(F.col("merchant_category").isNull()).count()
+        assert null_cat == 0, "NULL merchant_category rows should be filled to 'unknown'."
 
 
 # ===========================================================================
@@ -168,12 +168,12 @@ class TestBucketAmount:
         assert invalid == 0, f"{invalid} row(s) have unexpected amt_bucket values."
 
     def test_low_bucket_for_small_amount(self, spark, mock_df):
-        """A transaction with ``amt < 10`` must be bucketed as ``'low'``."""
+        """A transaction with ``transaction_amount < 10`` must be bucketed as ``'low'``."""
         result = bucket_amount(mock_df)
-        low_row = result.filter(F.col("trans_num") == "TXN001").select("amt_bucket").first()
+        low_row = result.filter(F.col("transaction_id") == "TXN001").select("amt_bucket").first()
         assert low_row is not None, "TXN001 not found in result."
         assert low_row["amt_bucket"] == "low", (
-            f"Expected 'low' for amt=5.0 but got '{low_row['amt_bucket']}'."
+            f"Expected 'low' for transaction_amount=5.0 but got '{low_row['amt_bucket']}'."
         )
 
 
@@ -222,26 +222,44 @@ class TestCalculateDistance:
 # ===========================================================================
 
 class TestEncodeGender:
-    """Tests for :func:`encode_gender`."""
+    """Tests for :func:`encode_gender`.
+
+    ``encode_gender`` binary-encodes the ``authentication_method`` column:
+    high-security biometric methods (biometric, face_recognition, fingerprint)
+    are mapped to 1; all other methods (including NULL) are mapped to 0.
+    The output column is named ``gender_encoded``.
+    """
+
+    BIOMETRIC_METHODS = ["biometric", "face_recognition", "fingerprint"]
 
     def test_gender_encoded_column_added(self, mock_df):
         """The ``gender_encoded`` column must be present in the output."""
         result = encode_gender(mock_df)
         assert "gender_encoded" in result.columns
 
-    def test_female_encoded_as_0(self, mock_df):
-        """Female (``'F'``) cardholders must be encoded as 0."""
+    def test_biometric_methods_encoded_as_1(self, mock_df):
+        """Biometric ``authentication_method`` values must be encoded as 1."""
         result = encode_gender(mock_df)
-        female_rows = result.filter(F.col("gender") == "F")
-        wrong = female_rows.filter(F.col("gender_encoded") != 0).count()
-        assert wrong == 0, f"{wrong} 'F' row(s) not encoded as 0."
+        biometric_rows = result.filter(
+            F.lower(F.col("authentication_method")).isin(self.BIOMETRIC_METHODS)
+        )
+        wrong = biometric_rows.filter(F.col("gender_encoded") != 1).count()
+        assert wrong == 0, (
+            f"{wrong} biometric row(s) not encoded as 1."
+        )
 
-    def test_male_encoded_as_1(self, mock_df):
-        """Male (``'M'``) cardholders must be encoded as 1."""
+    def test_non_biometric_methods_encoded_as_0(self, mock_df):
+        """Non-biometric ``authentication_method`` values (including NULL) must be
+        encoded as 0."""
         result = encode_gender(mock_df)
-        male_rows = result.filter(F.col("gender") == "M")
-        wrong = male_rows.filter(F.col("gender_encoded") != 1).count()
-        assert wrong == 0, f"{wrong} 'M' row(s) not encoded as 1."
+        non_biometric_rows = result.filter(
+            ~F.lower(F.col("authentication_method")).isin(self.BIOMETRIC_METHODS)
+            | F.col("authentication_method").isNull()
+        )
+        wrong = non_biometric_rows.filter(F.col("gender_encoded") != 0).count()
+        assert wrong == 0, (
+            f"{wrong} non-biometric row(s) not encoded as 0."
+        )
 
 
 # ===========================================================================
@@ -336,11 +354,11 @@ class TestApplyAll:
             )
 
     def test_no_duplicates_after_pipeline(self, mock_df):
-        """The duplicate ``trans_num`` introduced in ``mock_df`` must be
+        """The duplicate ``transaction_id`` introduced in ``mock_df`` must be
         removed by the time the full pipeline completes."""
         result = apply_all(mock_df)
         total = result.count()
-        distinct = result.select("trans_num").distinct().count()
+        distinct = result.select("transaction_id").distinct().count()
         assert total == distinct, (
-            f"Found {total - distinct} duplicate trans_num(s) after apply_all."
+            f"Found {total - distinct} duplicate transaction_id(s) after apply_all."
         )
