@@ -1,0 +1,49 @@
+pipeline {
+    agent any
+    environment {
+        VENV_DIR = 'venv'
+        DOCKER_IMAGE = 'rdv100/train_rf:1.5'
+        KUBECONFIG = credentials('kubeconfig-file') // Reference the kubeconfig credential
+        KUBE_NAMESPACE  = 'default'
+    }
+    stages {
+        stage('Build Docker Image') {
+            steps {
+                script {
+                    sh 'docker build -t ${DOCKER_IMAGE} -f ON_PREM/ml/create_model/Dockerfile ON_PREM/ml/create_model'
+                }
+            }
+        }
+        stage('Push Docker Image to Docker Hub') {
+            steps {
+                script {
+                    withCredentials([usernamePassword(credentialsId: 'rdv-hub', usernameVariable: 'RDV_DKR_HUB_USERNAME', passwordVariable: 'RDV_DKR_HUB_PASSWORD')]) {
+                        sh 'echo ${RDV_DKR_HUB_PASSWORD} | docker login -u ${RDV_DKR_HUB_USERNAME} --password-stdin'
+                    }
+                    sh 'docker push ${DOCKER_IMAGE}'
+                }
+            }
+        }
+        stage('Verify Deployment Files') {
+            steps {
+                script {
+                    sh 'ls -al ON_PREM/ml/create_model'
+                }
+            }
+        }
+        stage('Deploy to Kubernetes') {
+            steps {
+                script {
+                    sh 'kubectl delete job rf-train --ignore-not-found=true'
+                    sh 'kubectl apply -f ON_PREM/ml/create_model/deployment.yaml'
+                }
+            }
+        }
+    }
+    post {
+        success {
+            // Output the full URL to access the Flask API
+            echo "Build succeeded. Model stored in EC2 ( /home/ec2-user/BigData_May/bd_class_project/ml/all_ml/model )"
+        }
+    }
+}

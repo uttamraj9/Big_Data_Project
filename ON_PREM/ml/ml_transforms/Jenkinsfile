@@ -1,0 +1,63 @@
+pipeline{
+    agent any
+    triggers{
+        // run and check every 12 hours
+        cron('H */12 * * *')
+    }
+    environment {
+        SSH_KEY    = '/var/lib/jenkins/.ssh/cloudera_edge.pem'
+        EDGE_NODE  = 'ec2-user@13.41.167.97'
+        REMOTE_TMP = '/tmp/ml_transforms_deploy'
+        ML_SRC     = 'ON_PREM/ml/ml_transforms'
+    }
+    stages{
+        stage("Execute Full and Inc for curation"){
+            steps{
+                script{
+
+                    def fullLoadDone = fileExists('full_load_done.txt')
+
+                    if(!fullLoadDone){
+
+                        echo "Running Full Load..."
+                        sh """
+                            ssh -i ${SSH_KEY} -o StrictHostKeyChecking=no ${EDGE_NODE} \
+                                "mkdir -p ${REMOTE_TMP}"
+                            scp -i ${SSH_KEY} -o StrictHostKeyChecking=no \
+                                ${ML_SRC}/full_ml_trans.py \
+                                ${EDGE_NODE}:${REMOTE_TMP}/
+                            ssh -i ${SSH_KEY} -o StrictHostKeyChecking=no ${EDGE_NODE} \
+                                "HADOOP_CONF_DIR=/etc/hadoop/conf YARN_CONF_DIR=/etc/hadoop/conf \
+                                 spark-submit --master yarn --deploy-mode client \
+                                 --name ml-full-transforms \
+                                 --conf spark.hadoop.hive.metastore.uris=thrift://ip-172-31-6-42.eu-west-2.compute.internal:9083 \
+                                 --conf spark.executorEnv.PYTHONPATH=/home/ec2-user/.local/lib/python3.6/site-packages \
+                                 --conf spark.yarn.appMasterEnv.PYTHONPATH=/home/ec2-user/.local/lib/python3.6/site-packages \
+                                 ${REMOTE_TMP}/full_ml_trans.py"
+                        """
+
+                        writeFile file: 'full_load_done.txt', text: 'done'
+
+                    } else{
+                        echo "Running incremental load..."
+                        sh """
+                            ssh -i ${SSH_KEY} -o StrictHostKeyChecking=no ${EDGE_NODE} \
+                                "mkdir -p ${REMOTE_TMP}"
+                            scp -i ${SSH_KEY} -o StrictHostKeyChecking=no \
+                                ${ML_SRC}/incr_ml_trans.py \
+                                ${EDGE_NODE}:${REMOTE_TMP}/
+                            ssh -i ${SSH_KEY} -o StrictHostKeyChecking=no ${EDGE_NODE} \
+                                "HADOOP_CONF_DIR=/etc/hadoop/conf YARN_CONF_DIR=/etc/hadoop/conf \
+                                 spark-submit --master yarn --deploy-mode client \
+                                 --name ml-incr-transforms \
+                                 --conf spark.hadoop.hive.metastore.uris=thrift://ip-172-31-6-42.eu-west-2.compute.internal:9083 \
+                                 --conf spark.executorEnv.PYTHONPATH=/home/ec2-user/.local/lib/python3.6/site-packages \
+                                 --conf spark.yarn.appMasterEnv.PYTHONPATH=/home/ec2-user/.local/lib/python3.6/site-packages \
+                                 ${REMOTE_TMP}/incr_ml_trans.py"
+                        """
+                    }
+                }
+            }
+        }
+    }
+}

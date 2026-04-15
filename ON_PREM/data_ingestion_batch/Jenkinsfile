@@ -1,0 +1,115 @@
+// =============================================================================
+// Jenkinsfile — Raw Layer: Daily Incremental Ingestion Pipeline
+// =============================================================================
+// Triggers daily at 10:00 AM and runs two stages:
+//
+//   Stage 1 — ingest_to_postgres.py inc
+//             Simulates new transaction records arriving in the source
+//             PostgreSQL database by appending the next batch of rows
+//             from incremental_load.csv (training simulation only).
+//
+//   Stage 2 — raw_incremental_load.sh
+//             Reads the Hive watermark (MAX Timestamp), then uses Sqoop to
+//             append only the new records from PostgreSQL into the HDFS
+//             bronze landing zone. Hive picks them up automatically.
+//
+// Credentials
+// -----------
+//   The 'my-env-file' Jenkins credential is a file credential containing
+//   all required environment variables (DB_HOST, DB_NAME, DB_USERNAME,
+//   DB_PASSWORD, FULL_LOAD_CSV, INCREMENTAL_LOAD_CSV, KAFKA_STREAMING_CSV).
+// =============================================================================
+
+pipeline {
+    agent any
+
+    environment {
+        VENV_DIR = '/var/lib/jenkins/venvs/unit_testing_bd'
+    }
+
+    stages {
+
+        stage('Install Dependencies') {
+            steps {
+                script {
+                    sh '''
+                        if [ ! -d "${VENV_DIR}" ]; then
+                            echo "Creating Python virtual environment..."
+                            python3 -m venv ${VENV_DIR}
+                        else
+                            echo "Virtual environment already exists, reusing..."
+                        fi
+
+                        source ${VENV_DIR}/bin/activate
+                        pip install --upgrade pip --quiet
+                        pip install -r ON_PREM/data_ingestion_batch/requirements.txt --quiet
+                        echo "Dependencies installed."
+                    '''
+                }
+            }
+        }
+
+        stage('Simulate New Records in PostgreSQL') {
+            // Appends the next batch of synthetic records to the PostgreSQL
+            // source table, simulating new daily transactions arriving.
+            steps {
+                withCredentials([file(credentialsId: 'my-env-file', variable: 'ENV_FILE')]) {
+                    sh '''
+                        # Normalise line endings (Windows .env files use CRLF)
+                        tr -d '\\r' < "$ENV_FILE" > temp_env && mv temp_env "$ENV_FILE"
+                        set -a; source "$ENV_FILE"; set +a
+
+                        # Override CSV paths to current workspace — .env may contain stale absolute paths
+                        export FULL_LOAD_CSV="${WORKSPACE}/ON_PREM/data_ingestion_batch/data/split/full_load.csv"
+                        export INCREMENTAL_LOAD_CSV="${WORKSPACE}/ON_PREM/data_ingestion_batch/data/split/incremental_load.csv"
+                        export KAFKA_STREAMING_CSV="${WORKSPACE}/ON_PREM/data_ingestion_batch/data/split/kafka_streaming.csv"
+
+                        source ${VENV_DIR}/bin/activate
+                        python3 ON_PREM/data_ingestion_batch/src/raw_layer/ingest_to_postgres.py inc
+                    '''
+                }
+            }
+        }
+
+        stage('Incremental Load: PostgreSQL -> HDFS Bronze') {
+            // SSHes to the Cloudera edge node and runs raw_incremental_load.sh there.
+            // sqoop, beeline, and hdfs CLIs are only available on the edge node.
+            steps {
+                withCredentials([file(credentialsId: 'my-env-file', variable: 'ENV_FILE')]) {
+                    sh '''
+                        tr -d '\\r' < "$ENV_FILE" > temp_env && mv temp_env "$ENV_FILE"
+                        set -a; source "$ENV_FILE"; set +a
+
+                        # Copy the incremental load script to the Cloudera edge node and run it.
+                        # sqoop, beeline, and hdfs CLIs are only available on the edge node.
+                        SSH_KEY="/var/lib/jenkins/.ssh/cloudera_edge.pem"
+                        EDGE_NODE="ec2-user@13.41.167.97"
+                        SCRIPT="ON_PREM/data_ingestion_batch/src/raw_layer/oozie/incremental_load/scripts/raw_incremental_load.sh"
+                        REMOTE_SCRIPT="/tmp/raw_incremental_load_jenkins.sh"
+
+                        scp -i "$SSH_KEY" -o StrictHostKeyChecking=no "$SCRIPT" "${EDGE_NODE}:${REMOTE_SCRIPT}"
+                        ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no "$EDGE_NODE" \
+                            "chmod +x ${REMOTE_SCRIPT} && \
+                             DB_HOST=${DB_HOST} DB_NAME=${DB_NAME} \
+                             DB_USERNAME=${DB_USERNAME} DB_PASSWORD=${DB_PASSWORD} \
+                             bash ${REMOTE_SCRIPT}"
+                    '''
+                }
+            }
+        }
+
+    }
+
+    post {
+        success {
+            echo "Raw incremental load succeeded. New records are available in Hive."
+        }
+        failure {
+            echo "Raw incremental load failed. Check the stage logs above."
+        }
+        always {
+            echo "Cleaning up workspace..."
+            deleteDir()
+        }
+    }
+}

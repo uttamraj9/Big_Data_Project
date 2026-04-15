@@ -1,0 +1,25 @@
+pipeline {
+    agent any
+    stages {
+		stage('Building Jar File Job') {
+			steps {
+				build job: 'kafka_jar_build'
+			}
+		}		
+        stage('Run Producer and Consumer Jobs') {
+            parallel {
+                stage('Producer Job') {
+                    steps {
+                        build job: 'kafka_realtime_producer'
+                    }
+                }
+                stage('Consumer Job') {
+                    steps {
+                        build job: 'kafka_realtime_consumer'
+                    }
+                }
+            }
+        }
+    }
+}
+

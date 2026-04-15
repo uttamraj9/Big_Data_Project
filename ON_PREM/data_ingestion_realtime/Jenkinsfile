@@ -1,0 +1,148 @@
+// =============================================================================
+// Jenkinsfile — Real-time Layer: Kafka Producer + Consumer Pipeline
+// =============================================================================
+// Stages:
+//   1. Install Dependencies
+//   2. Unit Tests  (mocked — no Kafka/HBase/API required)
+//   3. Start Kafka Producer  (SSH to edge node, runs in background)
+//   4. Start Kafka Consumer → HBase  (SSH to edge node, runs in background)
+//
+// The producer and consumer run as background processes on the edge node.
+// Use the "Stop Pipeline" stage or kill the PIDs manually to stop them.
+//
+// Credentials
+// -----------
+//   github-token          GitHub token (already configured)
+// =============================================================================
+
+pipeline {
+    agent any
+
+    environment {
+        VENV_DIR   = '/var/lib/jenkins/venvs/realtime_py38'
+        EDGE_NODE  = 'ec2-user@13.41.167.97'
+        SSH_KEY    = '/var/lib/jenkins/.ssh/cloudera_edge.pem'
+        RT_SRC     = 'ON_PREM/data_ingestion_realtime'
+        REMOTE_TMP = '/tmp/realtime_deploy'
+    }
+
+    stages {
+
+        // ===================================================================
+        // Stage 1 — Install Dependencies
+        // ===================================================================
+        stage('Install Dependencies') {
+            steps {
+                sh """
+                    if [ ! -d "${VENV_DIR}" ]; then
+                        /usr/local/bin/python3.8 -m venv "${VENV_DIR}"
+                    fi
+                    source "${VENV_DIR}/bin/activate"
+                    pip install --upgrade pip --quiet
+                    pip install -r ${RT_SRC}/requirements.txt --quiet
+                    echo "Dependencies installed."
+                """
+            }
+        }
+
+        // ===================================================================
+        // Stage 2 — Unit Tests (mocked — no cluster required)
+        // ===================================================================
+        stage('Unit Tests') {
+            steps {
+                sh """
+                    source "${VENV_DIR}/bin/activate"
+                    pytest ${RT_SRC}/tests/ \
+                        -v \
+                        --tb=short \
+                        --junitxml=test-results/realtime_tests.xml
+                """
+            }
+            post {
+                always {
+                    junit 'test-results/realtime_tests.xml'
+                }
+            }
+        }
+
+        // ===================================================================
+        // Stage 3 — Start Kafka Producer on edge node
+        // ===================================================================
+        stage('Start Kafka Producer') {
+            steps {
+                sh """
+                    # Copy source files to edge node
+                    ssh -i ${SSH_KEY} -o StrictHostKeyChecking=no ${EDGE_NODE} \
+                        "mkdir -p ${REMOTE_TMP}/src ${REMOTE_TMP}/config ${REMOTE_TMP}/scripts"
+
+                    scp -i ${SSH_KEY} -o StrictHostKeyChecking=no \
+                        ${RT_SRC}/src/kafka_producer.py \
+                        ${EDGE_NODE}:${REMOTE_TMP}/src/
+
+                    scp -i ${SSH_KEY} -o StrictHostKeyChecking=no \
+                        ${RT_SRC}/config/config.properties \
+                        ${EDGE_NODE}:${REMOTE_TMP}/config/
+
+                    scp -i ${SSH_KEY} -o StrictHostKeyChecking=no \
+                        ${RT_SRC}/scripts/start_producer.sh \
+                        ${EDGE_NODE}:${REMOTE_TMP}/scripts/
+
+                    # Start producer in background, log to file
+                    ssh -i ${SSH_KEY} -o StrictHostKeyChecking=no ${EDGE_NODE} \
+                        "chmod +x ${REMOTE_TMP}/scripts/start_producer.sh && \
+                         nohup bash ${REMOTE_TMP}/scripts/start_producer.sh \
+                             > ${REMOTE_TMP}/producer.log 2>&1 & \
+                         echo \\\$! > ${REMOTE_TMP}/producer.pid && \
+                         echo 'Producer started. PID:' \$(cat ${REMOTE_TMP}/producer.pid)"
+                """
+            }
+        }
+
+        // ===================================================================
+        // Stage 4 — Start Kafka Consumer → HBase on edge node
+        // ===================================================================
+        stage('Start Kafka Consumer → HBase') {
+            steps {
+                sh """
+                    # Copy consumer source files
+                    scp -i ${SSH_KEY} -o StrictHostKeyChecking=no \
+                        ${RT_SRC}/src/kafka_consumer.py \
+                        ${RT_SRC}/src/hbase_client.py \
+                        ${EDGE_NODE}:${REMOTE_TMP}/src/
+
+                    scp -i ${SSH_KEY} -o StrictHostKeyChecking=no \
+                        ${RT_SRC}/scripts/start_consumer.sh \
+                        ${EDGE_NODE}:${REMOTE_TMP}/scripts/
+
+                    # Start consumer in background, log to file
+                    ssh -i ${SSH_KEY} -o StrictHostKeyChecking=no ${EDGE_NODE} \
+                        "chmod +x ${REMOTE_TMP}/scripts/start_consumer.sh && \
+                         nohup bash ${REMOTE_TMP}/scripts/start_consumer.sh \
+                             > ${REMOTE_TMP}/consumer.log 2>&1 & \
+                         echo \\\$! > ${REMOTE_TMP}/consumer.pid && \
+                         echo 'Consumer started. PID:' \$(cat ${REMOTE_TMP}/consumer.pid)"
+
+                    echo ""
+                    echo "Both producer and consumer are running on the edge node."
+                    echo "Producer log : ${REMOTE_TMP}/producer.log"
+                    echo "Consumer log : ${REMOTE_TMP}/consumer.log"
+                    echo ""
+                    echo "To stop:"
+                    echo "  ssh -i ~/test_key.pem ec2-user@13.41.167.97 'kill \$(cat ${REMOTE_TMP}/producer.pid) \$(cat ${REMOTE_TMP}/consumer.pid)'"
+                """
+            }
+        }
+    }
+
+    post {
+        success {
+            echo "Real-time pipeline is running. Producer → Kafka → Consumer → HBase."
+        }
+        failure {
+            echo "Pipeline failed. Check stage logs above."
+        }
+        always {
+            deleteDir()
+        }
+    }
+}
