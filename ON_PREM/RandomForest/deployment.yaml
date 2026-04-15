@@ -1,0 +1,32 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rf-model-deployment
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: rf-model
+  template:
+    metadata:
+      labels:
+        app: rf-model
+    spec:
+      containers:
+      - name: rf-model-container
+        image: usman57/rf-model:latest
+        ports:
+        - containerPort: 5000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rf-model-service
+spec:
+  selector:
+    app: rf-model
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 5000
+  type: LoadBalancer

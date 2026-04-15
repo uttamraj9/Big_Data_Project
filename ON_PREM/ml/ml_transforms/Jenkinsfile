@@ -1,0 +1,78 @@
+pipeline{
+    agent any
+    triggers{
+        // run and check every 15 minutes
+        cron('H */12 * * *')
+    }
+    stages{
+        stage("Execute Full and Inc for curation"){
+            steps{
+                script{
+
+                    def fullLoadDone = fileExists('full_load_done.txt')
+                    
+                    if(!fullLoadDone){
+                        
+                        echo "Running Full Load..."
+                        sh 'spark-submit --master local[*] ml/ml_transforms/full_ml_trans.py'
+                        // sh 'spark-submit --master local[*] ml/ml_transforms/incr_ml_trans.py'
+
+                        writeFile file: 'full_load_done.txt', text: 'done'
+
+                    } else{
+                        echo "Running incremental load..."
+                        sh 'spark-submit --master local[*] ml/ml_transforms/incr_ml_trans.py'
+                        // echo "Checking if Incremental Load is Needed..."
+                        
+                        // would not work on beeline
+                        // def raw_count = sh(script: "hive -S -e 'SELECT COUNT(*) FROM bd_class_project.cc_fraud_trans'", returnStdout: true).trim() 
+                        // def curated_count = sh(script: "hive -S -e 'SELECT COUNT(*) FROM bd_class_project.ml_from_csv'", returnStdout: true).trim() 
+                        
+                        // def raw_count = sh(
+                        //     script: '''
+                        //         hive -e "SET hive.cli.print.header=false;
+                        //                 SELECT COUNT(*) FROM bd_class_project.cc_fraud_trans;" \
+                        //         | grep -Eo '[0-9]+' | head -1
+                        //     ''',
+                        //     returnStdout: true
+                        // ).trim()
+
+                        // def curated_count = sh(
+                        //     script: '''
+                        //         hive -e "SET hive.cli.print.header=false;
+                        //                 SELECT COUNT(*) FROM bd_class_project.ml_from_csv;" \
+                        //         | grep -Eo '[0-9]+' | head -1
+                        //     ''',
+                        //     returnStdout: true
+                        // ).trim()
+
+                        // echo raw_count
+                        // echo curated_count
+
+                        // if(raw_count.toInteger() > curated_count.toInteger()){
+                            
+                        //     echo "Running incremental load..."
+                        //     sh 'spark-submit --master local[*] ml/ml_transforms/incr_ml_trans.py'
+
+                        // } else{
+
+                        //     echo "No new data. Skipping."
+
+                        // }
+
+                    }
+                }
+            }
+        }
+    }
+}
+
+// pipeline{
+//     stages{
+//         stage{
+//             steps{
+//                 echo ""
+//             }
+//         }
+//     }
+// }

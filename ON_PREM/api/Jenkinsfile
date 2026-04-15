@@ -1,0 +1,115 @@
+pipeline {
+    agent any
+    environment {
+        VENV_DIR = 'venv'
+        DOCKER_IMAGE = 'uttamraj9/streaming-data-api:v2'
+        FAST_APP_PORT = '5310'
+        SERVER_IP = '13.42.152.118' // Replace with your server's public IP
+        KUBECONFIG = credentials('kubeconfig-file') // Reference the kubeconfig credential
+        KUBE_NAMESPACE  = 'default'
+    }
+    stages {
+        stage('Clone Repository') {
+            steps {
+                git url: 'https://github.com/uttamraj9/Big_Data_Project.git', branch: 'main'
+            }
+        }
+        stage('Set Up Virtual Environment') {
+            steps {
+                script {
+                    // Create a virtual environment
+                    sh 'python3 -m venv ${VENV_DIR}'
+                }
+            }
+        }
+        stage('Install Dependencies') {
+            steps {
+                script {
+                    // Activate virtual environment, upgrade pip, and install dependencies
+                    sh '''
+                        source ${VENV_DIR}/bin/activate
+                        pip install --upgrade pip
+                        pip install -r requirements.txt
+                    '''
+                }
+            }
+        }
+        stage('Build Docker Image') {
+            steps {
+                script {
+                    sh 'docker build -t ${DOCKER_IMAGE} -f api/Dockerfile api'
+                }
+            }
+        }
+        stage('Push Docker Image to Docker Hub') {
+            steps {
+                script {
+                    // Log in to Docker Hub
+                    withCredentials([usernamePassword(credentialsId: 'uttam-hub', usernameVariable: 'DOCKER_HUB_USERNAME', passwordVariable: 'DOCKER_HUB_PASSWORD')]) {
+                        sh 'echo ${DOCKER_HUB_PASSWORD} | docker login -u ${DOCKER_HUB_USERNAME} --password-stdin'
+                    }
+                    // Push the image
+                    sh 'docker push ${DOCKER_IMAGE}'
+                }
+            }
+        }
+        stage('Create Kubernetes Secrets and ConfigMaps') {
+            steps {
+                script {
+                    withCredentials([
+                        file(credentialsId: 'kubeconfig-file', variable: 'KUBECONFIG'),
+                        usernamePassword(credentialsId: 'db-creds', usernameVariable: 'DB_USERNAME', passwordVariable: 'DB_PASSWORD')
+                    ]) {
+                        // ensure kubectl is using the right cluster
+                        sh 'kubectl version --client'
+                        sh 'kubectl config current-context'
+
+                        // ConfigMap
+                        sh '''
+                        kubectl create configmap db-config \
+                            --from-literal=DB_HOST=172.31.14.3 \
+                            --from-literal=DB_NAME=testdb \
+                            --from-literal=TABLE_NAME=cc_fraud_streaming_data \
+                            --dry-run=client -o yaml \
+                        | kubectl apply -n ${KUBE_NAMESPACE} --validate=false -f -
+                        '''
+
+                        // Secret
+                        sh '''
+                        kubectl create secret generic db-credentials \
+                            --from-literal=DB_USERNAME=${DB_USERNAME} \
+                            --from-literal=DB_PASSWORD=${DB_PASSWORD} \
+                            --dry-run=client -o yaml \
+                        | kubectl apply -n ${KUBE_NAMESPACE} --validate=false -f -
+                        '''
+                    }
+                }
+            }
+        }
+        stage('Verify Deployment Files') {
+            steps {
+                script {
+                    // Verify that the deployment files exist
+                    sh 'ls -al api/k8s/'
+                }
+            }
+        }
+        stage('Deploy to Kubernetes') {
+            steps {
+                script {
+                    // Apply the Kubernetes deployment and service files
+                    sh '''
+                    kubectl apply -f api/k8s/deployment.yaml
+                    kubectl apply -f api/k8s/service.yaml
+                    '''
+                }
+            }
+        }
+    }
+    post {
+        success {
+            // Output the full URL to access the Flask API
+            echo "Build succeeded. The Flask API is running at http://${SERVER_IP}:${FAST_APP_PORT}/data"
+        }
+    }
+}

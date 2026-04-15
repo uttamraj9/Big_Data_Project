@@ -1,0 +1,53 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: fraud-predict-cron
+spec:
+  schedule: "*/1 * * * *"
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 30
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        spec:
+          nodeSelector:
+            kubernetes.io/hostname: ip-172-31-8-235.eu-west-2.compute.internal
+          hostAliases:
+          - ip: "172.31.6.42"
+            hostnames:
+            - "ip-172-31-6-42.eu-west-2.compute.internal"
+          - ip: "172.31.3.251"
+            hostnames:
+            - "ip-172-31-3-251.eu-west-2.compute.internal"
+          - ip: "172.31.3.85"
+            hostnames:
+            - "ip-172-31-3-85.eu-west-2.compute.internal"
+          restartPolicy: Never
+          containers:
+          - name: fraud-predicter
+            image: rdv100/predict_fraud:2.8
+            imagePullPolicy: Always
+            env:
+            - name: HADOOP_USER_NAME
+              value: "hive"
+            - name: HIVE_METASTORE_URIS
+              value: "thrift://172.31.6.42:9083"
+            - name: HBASE_HOST
+              value: "172.31.6.42"
+            - name: HBASE_PORT
+              value: "9090"
+            - name: HBASE_TABLE
+              value: "cc_fraud_realtime"
+            - name: PREDICTIONS_DB
+              value: "bd_class_project"
+            - name: PREDICTIONS_TABLE
+              value: "predictions_realtime"
+            volumeMounts:
+            - name: model
+              mountPath: /app/model
+          volumes:
+          - name: model
+            hostPath:
+              path: /home/ec2-user/BigData_May/bd_class_project/ml/all_ml/model
+              type: Directory

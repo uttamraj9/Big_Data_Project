@@ -1,0 +1,48 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fast-api-deployment
+  namespace: default  # Ensure the correct namespace is specified or default if no specific namespace is required
+  labels:
+    app: fast-api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: fast-api
+  template:
+    metadata:
+      labels:
+        app: fast-api
+    spec:
+      containers:
+      - name: fast-api
+        image: tc349/streaming-data-api:v2
+        ports:
+        - containerPort: 5310
+        env:
+        - name: DB_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: db-config
+              key: DB_HOST
+        - name: DB_NAME
+          valueFrom:
+            configMapKeyRef:
+              name: db-config
+              key: DB_NAME
+        - name: TABLE_NAME
+          valueFrom:
+            configMapKeyRef:
+              name: db-config
+              key: TABLE_NAME
+        - name: DB_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: db-credentials
+              key: DB_USERNAME
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: db-credentials
+              key: DB_PASSWORD
