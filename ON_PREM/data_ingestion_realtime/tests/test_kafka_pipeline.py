@@ -119,7 +119,7 @@ class TestKafkaProducer:
         from kafka_producer import create_producer
         producer = create_producer("localhost:9092")
         for row in sample_rows:
-            key = str(row.get("trans_num", ""))
+            key = str(row.get("Transaction_ID", ""))
             producer.send("cc_fraud_stream", key=key, value=row)
 
         assert producer.send.call_count == len(sample_rows)

@@ -96,7 +96,7 @@ def sample_rows():
 @pytest.fixture
 def mock_kafka_producer():
     """Return a MagicMock KafkaProducer."""
-    with patch("kafka.KafkaProducer") as mock_cls:
+    with patch("kafka_producer.KafkaProducer") as mock_cls:
         producer = MagicMock()
         mock_cls.return_value = producer
         # .send() returns a future-like mock
