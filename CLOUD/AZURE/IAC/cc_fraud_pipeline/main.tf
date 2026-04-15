@@ -12,6 +12,10 @@ terraform {
       source  = "databricks/databricks"
       version = "~> 1.36"
     }
+    local = {
+      source  = "hashicorp/local"
+      version = "~> 2.4"
+    }
   }
   required_version = ">= 1.5.0"
 }

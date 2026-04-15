@@ -1,3 +1,14 @@
+terraform {
+  required_providers {
+    azurerm = {
+      source = "hashicorp/azurerm"
+    }
+    local = {
+      source = "hashicorp/local"
+    }
+  }
+}
+
 # ─── Use existing Synapse workspace ──────────────────────────
 data "azurerm_synapse_workspace" "existing" {
   name                = var.existing_workspace_name
@@ -11,32 +22,24 @@ resource "azurerm_role_assignment" "synapse_adls_access" {
   principal_id         = data.azurerm_synapse_workspace.existing.identity[0].principal_id
 }
 
-# ─── Synapse SQL Script: Bootstrap GoldDB ────────────────────
-resource "azurerm_synapse_sql_script" "create_gold_db" {
-  name                 = "Create_GoldDB"
-  synapse_workspace_id = data.azurerm_synapse_workspace.existing.id
+# ─── Write gold-layer SQL scripts to disk ────────────────────
+# The DATA_PIPELINE Jenkinsfile uploads these to Synapse Studio
+# via: az synapse sql script create --workspace-name ... --file ...
 
-  type = "SqlQuery"
-  content = <<-SQL
+resource "local_file" "gold_db_sql" {
+  filename = "${path.module}/../../../../DATA_PIPELINE/cc_fraud_pipeline/synapse/01_create_gold_db.sql"
+  content  = <<-SQL
     -- Run against: Built-in (Serverless SQL pool)
     IF NOT EXISTS (SELECT name FROM sys.databases WHERE name = 'GoldDB')
     BEGIN
         CREATE DATABASE GoldDB;
     END
   SQL
-
-  sql_pool_id = "Built-in"
-  folder      = "CC Fraud Gold Layer"
-  description = "Creates GoldDB database in the Serverless SQL pool"
 }
 
-# ─── Synapse SQL Script: Gold Views for cc_fraud_trans ───────
-resource "azurerm_synapse_sql_script" "create_gold_objects" {
-  name                 = "Create_CC_Fraud_Gold_Views"
-  synapse_workspace_id = data.azurerm_synapse_workspace.existing.id
-
-  type = "SqlQuery"
-  content = <<-SQL
+resource "local_file" "gold_views_sql" {
+  filename = "${path.module}/../../../../DATA_PIPELINE/cc_fraud_pipeline/synapse/02_create_gold_views.sql"
+  content  = <<-SQL
     -- Run against: GoldDB (Serverless SQL pool)
     USE GoldDB;
     GO
@@ -45,7 +48,6 @@ resource "azurerm_synapse_sql_script" "create_gold_objects" {
         EXEC('CREATE SCHEMA gold');
     GO
 
-    -- External data source → ADLS gold container
     IF NOT EXISTS (SELECT * FROM sys.external_data_sources WHERE name = 'gold_adls')
     CREATE EXTERNAL DATA SOURCE gold_adls
     WITH (
@@ -116,7 +118,7 @@ resource "azurerm_synapse_sql_script" "create_gold_objects" {
     GROUP BY CAST(txn_date AS DATE);
     GO
 
-    -- High-risk transaction summary
+    -- High-risk summary by location
     CREATE OR ALTER VIEW gold.high_risk_summary AS
     SELECT
         location,
@@ -134,14 +136,7 @@ resource "azurerm_synapse_sql_script" "create_gold_objects" {
         high_risk          INT
     ) AS t
     WHERE high_risk = 1
-    GROUP BY location
-    ORDER BY high_risk_count DESC;
+    GROUP BY location;
     GO
   SQL
-
-  sql_pool_id = "Built-in"
-  folder      = "CC Fraud Gold Layer"
-  description = "Creates gold-layer views for cc_fraud_trans in Synapse Serverless SQL"
-
-  depends_on = [azurerm_synapse_sql_script.create_gold_db]
 }
