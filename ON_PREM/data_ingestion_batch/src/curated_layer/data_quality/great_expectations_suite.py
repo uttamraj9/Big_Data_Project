@@ -2,14 +2,25 @@
 great_expectations_suite.py
 ============================
 Data-quality validation for the ``bd_class_project.cc_fraud_trans_curated``
-Hive table using Great Expectations v0.17+.
+Hive table using pure PySpark assertions.
 
-The function ``run_quality_checks(df_spark)`` converts the Spark DataFrame
-to a GX-compatible asset, runs a suite of expectations, prints a pass/fail
-summary, and exits with code 1 if any expectation fails.
+``run_quality_checks(df_spark)`` validates a suite of expectations, prints a
+pass/fail summary, and exits with code 1 if any expectation fails.
 
 ``main()`` builds a SparkSession with Hive support, reads the curated table,
 and delegates to ``run_quality_checks``.
+
+Schema expectations match the cc_fraud_trans_curated table which contains
+both the original columns and the transformation-derived columns:
+    transaction_id, user_id, transaction_amount, transaction_type, timestamp,
+    account_balance, device_type, location, merchant_category, ip_address_flag,
+    previous_fraudulent_activity, daily_transaction_count,
+    avg_transaction_amount_7d, failed_transaction_count_7d, card_type,
+    card_age, transaction_distance, authentication_method, risk_score,
+    is_weekend, fraud_label,
+    txn_hour, txn_day_of_week, txn_month,
+    amt_log, amt_bucket, cardholder_age, distance_km,
+    gender_encoded, txn_velocity_day, high_risk
 
 Usage
 -----
@@ -37,30 +48,25 @@ CURATED_TABLE = "bd_class_project.cc_fraud_trans_curated"
 # Quality-check function
 # ---------------------------------------------------------------------------
 
-def run_quality_checks(df_spark) -> None:
-    """Validate a curated-layer Spark DataFrame using Great Expectations.
-
-    The function uses an in-memory (Ephemeral) GX context so that no local
-    filesystem configuration is required.  All expectations are added to a
-    single suite and validated in one pass.
+def run_quality_checks(df_spark):
+    """Validate the curated-layer DataFrame using PySpark assertions.
 
     Expectations applied
     ~~~~~~~~~~~~~~~~~~~~
     * Row count >= 1
-    * Not-null: ``trans_num``, ``Timestamp``, ``cc_num``, ``amt``,
-      ``is_fraud``
-    * ``amt >= 0``, ``amt_log >= 0``
+    * Not-null: ``transaction_id``, ``timestamp``, ``user_id``,
+      ``transaction_amount``, ``fraud_label``
+    * ``transaction_amount >= 0``, ``amt_log >= 0``
     * ``txn_hour`` in [0, 23], ``txn_month`` in [1, 12],
       ``txn_day_of_week`` in [1, 7]
-    * ``cardholder_age`` in [18, 120]
+    * ``cardholder_age`` (card age in years) in [0, 50]
     * ``distance_km >= 0``
     * ``txn_velocity_day >= 1``
     * ``amt_bucket`` in {``low``, ``medium``, ``high``, ``very_high``}
-    * ``gender_encoded`` in {-1, 0, 1}
-    * ``is_fraud`` in {0, 1}, ``is_weekend`` in {0, 1},
-      ``high_risk`` in {0, 1}
-    * ``trans_num`` values are unique
-    * Mean of ``is_fraud`` in [0.0, 0.5]
+    * ``gender_encoded`` in {0, 1}
+    * ``fraud_label``, ``is_weekend``, ``high_risk`` each in {0, 1}
+    * ``transaction_id`` values are unique
+    * Mean of ``fraud_label`` in [0.0, 0.5]
 
     Parameters
     ----------
@@ -69,161 +75,194 @@ def run_quality_checks(df_spark) -> None:
 
     Raises / Exits
     --------------
-    Calls ``sys.exit(1)`` if any expectation fails; prints a summary either
-    way.
+    Calls ``sys.exit(1)`` if any expectation fails; prints a summary either way.
     """
-    import great_expectations as gx
-    from great_expectations.core.batch import RuntimeBatchRequest
+    from pyspark.sql import functions as F
 
-    logger.info("Initialising Great Expectations in-memory context …")
-
-    # ------------------------------------------------------------------
-    # Build an ephemeral (in-memory) GX context – no filesystem needed
-    # ------------------------------------------------------------------
-    context = gx.get_context(mode="ephemeral")
+    failures = []
 
     # ------------------------------------------------------------------
-    # Add a Spark datasource
-    # ------------------------------------------------------------------
-    datasource = context.sources.add_spark(name="spark_curated_source")
-    data_asset = datasource.add_dataframe_asset(name="cc_fraud_trans_curated")
-
-    # ------------------------------------------------------------------
-    # Build a batch request from the Spark DataFrame
-    # ------------------------------------------------------------------
-    batch_request = data_asset.build_batch_request(dataframe=df_spark)
-
-    # ------------------------------------------------------------------
-    # Create an expectation suite
-    # ------------------------------------------------------------------
-    suite_name = "cc_fraud_trans_curated_suite"
-    suite = context.add_or_update_expectation_suite(suite_name)
-
-    # ------------------------------------------------------------------
-    # Add a validator and attach expectations
-    # ------------------------------------------------------------------
-    validator = context.get_validator(
-        batch_request=batch_request,
-        expectation_suite=suite,
-    )
-
-    logger.info("Adding expectations …")
-
     # 1. Row count
-    validator.expect_table_row_count_to_be_between(min_value=1)
+    # ------------------------------------------------------------------
+    row_count = df_spark.count()
+    logger.info("Row count: %d", row_count)
+    if row_count < 1:
+        failures.append("Row count is 0 – expected at least 1 row")
 
+    # ------------------------------------------------------------------
     # 2. Not-null checks for key columns
-    for col in ["trans_num", "Timestamp", "cc_num", "amt", "is_fraud"]:
-        validator.expect_column_values_to_not_be_null(column=col)
+    # ------------------------------------------------------------------
+    key_cols = [
+        "transaction_id", "timestamp", "user_id",
+        "transaction_amount", "fraud_label",
+    ]
+    for col in key_cols:
+        null_count = df_spark.filter(F.col(col).isNull()).count()
+        if null_count > 0:
+            failures.append(
+                "expect_column_values_to_not_be_null [{col}]: "
+                "{n} null(s)".format(col=col, n=null_count)
+            )
 
+    # ------------------------------------------------------------------
     # 3. Amount validations
-    validator.expect_column_values_to_be_between(
-        column="amt", min_value=0, mostly=1.0
-    )
-    validator.expect_column_values_to_be_between(
-        column="amt_log", min_value=0, mostly=1.0
-    )
-
-    # 4. Time features
-    validator.expect_column_values_to_be_between(
-        column="txn_hour", min_value=0, max_value=23
-    )
-    validator.expect_column_values_to_be_between(
-        column="txn_month", min_value=1, max_value=12
-    )
-    validator.expect_column_values_to_be_between(
-        column="txn_day_of_week", min_value=1, max_value=7
-    )
-
-    # 5. Cardholder age
-    validator.expect_column_values_to_be_between(
-        column="cardholder_age", min_value=18, max_value=120
-    )
-
-    # 6. Distance
-    validator.expect_column_values_to_be_between(
-        column="distance_km", min_value=0, mostly=1.0
-    )
-
-    # 7. Transaction velocity
-    validator.expect_column_values_to_be_between(
-        column="txn_velocity_day", min_value=1
-    )
-
-    # 8. Amount bucket
-    validator.expect_column_values_to_be_in_set(
-        column="amt_bucket",
-        value_set=["low", "medium", "high", "very_high"],
-    )
-
-    # 9. Gender encoded
-    validator.expect_column_values_to_be_in_set(
-        column="gender_encoded",
-        value_set=[-1, 0, 1],
-    )
-
-    # 10. Binary flags
-    for col in ["is_fraud", "is_weekend", "high_risk"]:
-        validator.expect_column_values_to_be_in_set(
-            column=col,
-            value_set=[0, 1],
+    # ------------------------------------------------------------------
+    invalid_amt = df_spark.filter(F.col("transaction_amount") < 0).count()
+    if invalid_amt > 0:
+        failures.append(
+            "expect_column_values_to_be_between [transaction_amount >= 0]: "
+            "{n} violation(s)".format(n=invalid_amt)
         )
 
-    # 11. Unique trans_num
-    validator.expect_column_values_to_be_unique(column="trans_num")
-
-    # 12. Fraud rate
-    validator.expect_column_mean_to_be_between(
-        column="is_fraud", min_value=0.0, max_value=0.5
-    )
+    invalid_amt_log = df_spark.filter(F.col("amt_log") < 0).count()
+    if invalid_amt_log > 0:
+        failures.append(
+            "expect_column_values_to_be_between [amt_log >= 0]: "
+            "{n} violation(s)".format(n=invalid_amt_log)
+        )
 
     # ------------------------------------------------------------------
-    # Save suite and run validation
+    # 4. Time features
     # ------------------------------------------------------------------
-    validator.save_expectation_suite(discard_failed_expectations=False)
+    invalid_hour = df_spark.filter(
+        (F.col("txn_hour") < 0) | (F.col("txn_hour") > 23)
+    ).count()
+    if invalid_hour > 0:
+        failures.append(
+            "expect_column_values_to_be_between [txn_hour in 0-23]: "
+            "{n} violation(s)".format(n=invalid_hour)
+        )
 
-    logger.info("Running validation …")
-    checkpoint = context.add_or_update_checkpoint(
-        name="curated_checkpoint",
-        validator=validator,
-    )
-    results = checkpoint.run()
+    invalid_month = df_spark.filter(
+        (F.col("txn_month") < 1) | (F.col("txn_month") > 12)
+    ).count()
+    if invalid_month > 0:
+        failures.append(
+            "expect_column_values_to_be_between [txn_month in 1-12]: "
+            "{n} violation(s)".format(n=invalid_month)
+        )
+
+    invalid_dow = df_spark.filter(
+        (F.col("txn_day_of_week") < 1) | (F.col("txn_day_of_week") > 7)
+    ).count()
+    if invalid_dow > 0:
+        failures.append(
+            "expect_column_values_to_be_between [txn_day_of_week in 1-7]: "
+            "{n} violation(s)".format(n=invalid_dow)
+        )
+
+    # ------------------------------------------------------------------
+    # 5. Card age (cardholder_age = card_age cast to int, not birth-based)
+    # ------------------------------------------------------------------
+    invalid_card_age = df_spark.filter(
+        (F.col("cardholder_age") < 0) | (F.col("cardholder_age") > 50)
+    ).count()
+    if invalid_card_age > 0:
+        failures.append(
+            "expect_column_values_to_be_between [cardholder_age in 0-50]: "
+            "{n} violation(s)".format(n=invalid_card_age)
+        )
+
+    # ------------------------------------------------------------------
+    # 6. Distance
+    # ------------------------------------------------------------------
+    invalid_dist = df_spark.filter(F.col("distance_km") < 0).count()
+    if invalid_dist > 0:
+        failures.append(
+            "expect_column_values_to_be_between [distance_km >= 0]: "
+            "{n} violation(s)".format(n=invalid_dist)
+        )
+
+    # ------------------------------------------------------------------
+    # 7. Transaction velocity
+    # ------------------------------------------------------------------
+    invalid_vel = df_spark.filter(F.col("txn_velocity_day") < 1).count()
+    if invalid_vel > 0:
+        failures.append(
+            "expect_column_values_to_be_between [txn_velocity_day >= 1]: "
+            "{n} violation(s)".format(n=invalid_vel)
+        )
+
+    # ------------------------------------------------------------------
+    # 8. Amount bucket valid values
+    # ------------------------------------------------------------------
+    valid_buckets = ["low", "medium", "high", "very_high"]
+    invalid_bucket = df_spark.filter(
+        ~F.col("amt_bucket").isin(valid_buckets)
+    ).count()
+    if invalid_bucket > 0:
+        failures.append(
+            "expect_column_values_to_be_in_set [amt_bucket]: "
+            "{n} invalid value(s)".format(n=invalid_bucket)
+        )
+
+    # ------------------------------------------------------------------
+    # 9. Gender encoded binary
+    # ------------------------------------------------------------------
+    invalid_ge = df_spark.filter(
+        ~F.col("gender_encoded").isin([0, 1])
+    ).count()
+    if invalid_ge > 0:
+        failures.append(
+            "expect_column_values_to_be_in_set [gender_encoded in 0,1]: "
+            "{n} invalid value(s)".format(n=invalid_ge)
+        )
+
+    # ------------------------------------------------------------------
+    # 10. Binary flags
+    # ------------------------------------------------------------------
+    for col in ["fraud_label", "is_weekend", "high_risk"]:
+        invalid_flag = df_spark.filter(~F.col(col).isin([0, 1])).count()
+        if invalid_flag > 0:
+            failures.append(
+                "expect_column_values_to_be_in_set [{col} in 0,1]: "
+                "{n} invalid value(s)".format(col=col, n=invalid_flag)
+            )
+
+    # ------------------------------------------------------------------
+    # 11. transaction_id uniqueness
+    # ------------------------------------------------------------------
+    total_rows = df_spark.count()
+    distinct_ids = df_spark.select("transaction_id").distinct().count()
+    dup_count = total_rows - distinct_ids
+    if dup_count > 0:
+        failures.append(
+            "expect_column_values_to_be_unique [transaction_id]: "
+            "{n} duplicate(s)".format(n=dup_count)
+        )
+
+    # ------------------------------------------------------------------
+    # 12. Fraud rate sanity check
+    # ------------------------------------------------------------------
+    fraud_mean = df_spark.agg(
+        F.mean("fraud_label").alias("m")
+    ).first()["m"]
+
+    if fraud_mean is None or not (0.0 <= fraud_mean <= 0.5):
+        failures.append(
+            "expect_column_mean_to_be_between [fraud_label mean in 0.0-0.5]: "
+            "mean={m}".format(m=fraud_mean)
+        )
 
     # ------------------------------------------------------------------
     # Print summary
     # ------------------------------------------------------------------
-    overall_success = results.success
     print("\n" + "=" * 60)
-    print("  Great Expectations – Validation Summary")
+    print("  Data Quality – Validation Summary")
     print("=" * 60)
-
-    for run_result in results.run_results.values():
-        validation_result = run_result.get("validation_result", {})
-        stats = validation_result.get("statistics", {})
-        evaluated = stats.get("evaluated_expectations", "?")
-        successful = stats.get("successful_expectations", "?")
-        failed = stats.get("unsuccessful_expectations", "?")
-        print(f"  Evaluated  : {evaluated}")
-        print(f"  Passed     : {successful}")
-        print(f"  Failed     : {failed}")
-
-        # Print individual failures
-        for er in validation_result.get("results", []):
-            if not er.get("success", True):
-                exp_type = er.get("expectation_config", {}).get(
-                    "expectation_type", "unknown"
-                )
-                col = er.get("expectation_config", {}).get("kwargs", {}).get(
-                    "column", "table-level"
-                )
-                print(f"  FAIL  [{col}]  {exp_type}")
-
+    print("  Evaluated  : {n}".format(n=12 + len(key_cols) - 1))
+    print("  Passed     : {n}".format(n=(12 + len(key_cols) - 1) - len(failures)))
+    print("  Failed     : {n}".format(n=len(failures)))
+    for f in failures:
+        print("  FAIL  {f}".format(f=f))
     print("=" * 60)
-    print(f"  Overall result: {'PASS' if overall_success else 'FAIL'}")
+    print("  Overall result: {r}".format(r="PASS" if not failures else "FAIL"))
     print("=" * 60 + "\n")
 
-    if not overall_success:
-        logger.error("One or more data-quality checks failed – exiting with code 1.")
+    if failures:
+        logger.error(
+            "One or more data-quality checks failed – exiting with code 1."
+        )
         sys.exit(1)
 
     logger.info("All data-quality checks passed.")
@@ -233,7 +272,7 @@ def run_quality_checks(df_spark) -> None:
 # main
 # ---------------------------------------------------------------------------
 
-def main() -> None:
+def main():
     """Build a SparkSession, read the curated Hive table, run quality checks."""
     from pyspark.sql import SparkSession
 
