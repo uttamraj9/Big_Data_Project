@@ -13,7 +13,7 @@ pipeline {
         VENV_DIR        = '/var/lib/jenkins/venvs/unit_testing_bd'
         EDGE_NODE       = 'ec2-user@13.41.167.97'
         SSH_KEY         = '/var/lib/jenkins/.ssh/cloudera_edge.pem'
-        CURATED_SRC     = 'data_ingestion_batch/src/curated_layer'
+        CURATED_SRC     = 'ON_PREM/data_ingestion_batch/src/curated_layer'
         REMOTE_TMP      = '/tmp/curated_layer_deploy'
     }
 

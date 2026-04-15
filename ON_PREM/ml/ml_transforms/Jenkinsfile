@@ -14,14 +14,14 @@ pipeline{
                     if(!fullLoadDone){
                         
                         echo "Running Full Load..."
-                        sh 'spark-submit --master local[*] ml/ml_transforms/full_ml_trans.py'
-                        // sh 'spark-submit --master local[*] ml/ml_transforms/incr_ml_trans.py'
+                        sh 'spark-submit --master local[*] ON_PREM/ml/ml_transforms/full_ml_trans.py'
+                        // sh 'spark-submit --master local[*] ON_PREM/ml/ml_transforms/incr_ml_trans.py'
 
                         writeFile file: 'full_load_done.txt', text: 'done'
 
                     } else{
                         echo "Running incremental load..."
-                        sh 'spark-submit --master local[*] ml/ml_transforms/incr_ml_trans.py'
+                        sh 'spark-submit --master local[*] ON_PREM/ml/ml_transforms/incr_ml_trans.py'
                         // echo "Checking if Incremental Load is Needed..."
                         
                         // would not work on beeline
@@ -52,7 +52,7 @@ pipeline{
                         // if(raw_count.toInteger() > curated_count.toInteger()){
                             
                         //     echo "Running incremental load..."
-                        //     sh 'spark-submit --master local[*] ml/ml_transforms/incr_ml_trans.py'
+                        //     sh 'spark-submit --master local[*] ON_PREM/ml/ml_transforms/incr_ml_trans.py'
 
                         // } else{
 
