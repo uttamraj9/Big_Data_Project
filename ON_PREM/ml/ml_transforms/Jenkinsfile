@@ -4,24 +4,27 @@ pipeline{
         // run and check every 15 minutes
         cron('H */12 * * *')
     }
+    environment {
+        SPARK_HOME = '/opt/spark-3.5.1-bin-hadoop3'
+    }
     stages{
         stage("Execute Full and Inc for curation"){
             steps{
                 script{
 
                     def fullLoadDone = fileExists('full_load_done.txt')
-                    
+
                     if(!fullLoadDone){
-                        
+
                         echo "Running Full Load..."
-                        sh 'spark-submit --master local[*] ON_PREM/ml/ml_transforms/full_ml_trans.py'
+                        sh '${SPARK_HOME}/bin/spark-submit --master local[*] ON_PREM/ml/ml_transforms/full_ml_trans.py'
                         // sh 'spark-submit --master local[*] ON_PREM/ml/ml_transforms/incr_ml_trans.py'
 
                         writeFile file: 'full_load_done.txt', text: 'done'
 
                     } else{
                         echo "Running incremental load..."
-                        sh 'spark-submit --master local[*] ON_PREM/ml/ml_transforms/incr_ml_trans.py'
+                        sh '${SPARK_HOME}/bin/spark-submit --master local[*] ON_PREM/ml/ml_transforms/incr_ml_trans.py'
                         // echo "Checking if Incremental Load is Needed..."
                         
                         // would not work on beeline
