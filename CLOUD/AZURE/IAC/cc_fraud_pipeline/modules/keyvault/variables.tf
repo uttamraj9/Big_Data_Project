@@ -1,7 +1,5 @@
 variable "resource_group_name" {}
-variable "location" {}
-variable "project" {}
-variable "environment" {}
+variable "key_vault_name" {}
 variable "tenant_id" {}
 variable "current_object_id" {}
 variable "pg_host" {}

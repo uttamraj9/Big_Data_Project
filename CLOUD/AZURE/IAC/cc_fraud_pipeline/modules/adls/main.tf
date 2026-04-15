@@ -1,42 +1,30 @@
-# ─── ADLS Gen2 Storage Account ──────────────────────────────
-resource "azurerm_storage_account" "adls" {
-  name                     = "${replace(var.project, "-", "")}${var.environment}adls"
-  resource_group_name      = var.resource_group_name
-  location                 = var.location
-  account_tier             = "Standard"
-  account_replication_type = "LRS"
-  account_kind             = "StorageV2"
-  is_hns_enabled           = true # Hierarchical Namespace = ADLS Gen2
-
-  blob_properties {
-    versioning_enabled = true
-    delete_retention_policy {
-      days = 7
-    }
-  }
-
-  tags = {
-    project     = var.project
-    environment = var.environment
-    layer       = "storage"
-  }
+# ─── Reference existing ADLS Gen2 account ────────────────────
+data "azurerm_storage_account" "adls" {
+  name                = var.adls_account_name
+  resource_group_name = var.resource_group_name
 }
 
-# ─── Containers (Layers) ─────────────────────────────────────
+# ─── Create cc_fraud containers if they don't exist ──────────
+# 'raw' already exists in itcbdneadls; curated and gold are new.
+
 resource "azurerm_storage_container" "raw" {
   name                  = "raw"
-  storage_account_name  = azurerm_storage_account.adls.name
+  storage_account_name  = data.azurerm_storage_account.adls.name
   container_access_type = "private"
+
+  lifecycle {
+    ignore_changes = [name]  # container already exists
+  }
 }
 
 resource "azurerm_storage_container" "curated" {
   name                  = "curated"
-  storage_account_name  = azurerm_storage_account.adls.name
+  storage_account_name  = data.azurerm_storage_account.adls.name
   container_access_type = "private"
 }
 
 resource "azurerm_storage_container" "gold" {
   name                  = "gold"
-  storage_account_name  = azurerm_storage_account.adls.name
+  storage_account_name  = data.azurerm_storage_account.adls.name
   container_access_type = "private"
 }
