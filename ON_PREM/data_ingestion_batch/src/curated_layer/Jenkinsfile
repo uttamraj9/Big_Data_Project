@@ -11,6 +11,7 @@ pipeline {
 
     environment {
         VENV_DIR        = '/var/lib/jenkins/venvs/curated_layer_py38'
+        JAVA_HOME       = '/usr/lib/jvm/java-1.8.0-openjdk'
         EDGE_NODE       = 'ec2-user@13.41.167.97'
         SSH_KEY         = '/var/lib/jenkins/.ssh/cloudera_edge.pem'
         CURATED_SRC     = 'ON_PREM/data_ingestion_batch/src/curated_layer'
