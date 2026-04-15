@@ -94,6 +94,7 @@ pipeline {
                             -o StrictHostKeyChecking=no \
                             ${EDGE_NODE} \
                             "chmod +x ${REMOTE_TMP}/scripts/${scriptName} && \
+                             HADOOP_CONF_DIR=/etc/hadoop/conf YARN_CONF_DIR=/etc/hadoop/conf \
                              bash ${REMOTE_TMP}/scripts/${scriptName}"
                     """
                 }
@@ -117,7 +118,8 @@ pipeline {
                     ssh -i ${SSH_KEY} \
                         -o StrictHostKeyChecking=no \
                         ${EDGE_NODE} \
-                        "spark-submit \
+                        "HADOOP_CONF_DIR=/etc/hadoop/conf YARN_CONF_DIR=/etc/hadoop/conf \
+                         spark-submit \
                             --master yarn \
                             --deploy-mode client \
                             --name curated-data-quality \
