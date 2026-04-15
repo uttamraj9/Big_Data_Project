@@ -27,7 +27,8 @@ pipeline{
                                 ${ML_SRC}/full_ml_trans.py \
                                 ${EDGE_NODE}:${REMOTE_TMP}/
                             ssh -i ${SSH_KEY} -o StrictHostKeyChecking=no ${EDGE_NODE} \
-                                "spark-submit --master yarn --deploy-mode client \
+                                "HADOOP_CONF_DIR=/etc/hadoop/conf YARN_CONF_DIR=/etc/hadoop/conf \
+                                 spark-submit --master yarn --deploy-mode client \
                                  --name ml-full-transforms \
                                  ${REMOTE_TMP}/full_ml_trans.py"
                         """
@@ -43,7 +44,8 @@ pipeline{
                                 ${ML_SRC}/incr_ml_trans.py \
                                 ${EDGE_NODE}:${REMOTE_TMP}/
                             ssh -i ${SSH_KEY} -o StrictHostKeyChecking=no ${EDGE_NODE} \
-                                "spark-submit --master yarn --deploy-mode client \
+                                "HADOOP_CONF_DIR=/etc/hadoop/conf YARN_CONF_DIR=/etc/hadoop/conf \
+                                 spark-submit --master yarn --deploy-mode client \
                                  --name ml-incr-transforms \
                                  ${REMOTE_TMP}/incr_ml_trans.py"
                         """
