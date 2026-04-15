@@ -1,0 +1,105 @@
+pipeline {
+    agent any
+
+    environment {
+        IAC_DIR          = 'CLOUD/AZURE/IAC/cc_fraud_pipeline'
+        PIPELINE_DIR     = 'CLOUD/AZURE/DATA_PIPELINE/cc_fraud_pipeline'
+        TF_VAR_FILE      = 'terraform.tfvars'
+        DATABRICKS_HOST  = credentials('databricks-host')       // e.g. https://<workspace>.azuredatabricks.net
+        DATABRICKS_TOKEN = credentials('databricks-token')      // Databricks PAT stored in Jenkins
+    }
+
+    stages {
+
+        // ── Stage 1: Terraform Init & Plan ────────────────────
+        stage('Terraform Init & Plan') {
+            steps {
+                dir("${IAC_DIR}") {
+                    sh '''
+                        terraform init -input=false
+                        terraform plan -var-file=${TF_VAR_FILE} -out=tfplan -input=false
+                    '''
+                }
+            }
+        }
+
+        // ── Stage 2: Terraform Apply (provision Azure infra) ──
+        stage('Terraform Apply') {
+            steps {
+                dir("${IAC_DIR}") {
+                    sh 'terraform apply -input=false tfplan'
+                }
+            }
+        }
+
+        // ── Stage 3: Upload Databricks Notebooks ──────────────
+        // Uploads the PySpark scripts from DATA_PIPELINE/ to the
+        // Databricks workspace created by Terraform.
+        stage('Upload Databricks Notebooks') {
+            steps {
+                sh '''
+                    pip install databricks-cli --quiet
+
+                    export DATABRICKS_HOST=${DATABRICKS_HOST}
+                    export DATABRICKS_TOKEN=${DATABRICKS_TOKEN}
+
+                    # Create target folder in workspace
+                    databricks workspace mkdirs /Shared/cc_fraud_pipeline
+
+                    # Upload raw → curated notebook
+                    databricks workspace import \
+                        --language PYTHON \
+                        --overwrite \
+                        ${PIPELINE_DIR}/databricks/raw_to_curated.py \
+                        /Shared/cc_fraud_pipeline/raw_to_curated
+
+                    # Upload curated → gold notebook
+                    databricks workspace import \
+                        --language PYTHON \
+                        --overwrite \
+                        ${PIPELINE_DIR}/databricks/curated_to_gold.py \
+                        /Shared/cc_fraud_pipeline/curated_to_gold
+
+                    echo "Notebooks uploaded to Databricks workspace."
+                '''
+            }
+        }
+
+        // ── Stage 4: Trigger ADF Pipeline (initial run) ───────
+        // Kicks off the ADF copy pipeline immediately after deploy
+        // so data is available for the Databricks jobs.
+        stage('Trigger ADF Pipeline') {
+            steps {
+                dir("${IAC_DIR}") {
+                    sh '''
+                        ADF_NAME=$(terraform output -raw adf_name)
+                        RG="Itc_Bigdata"
+                        PIPELINE="PL_CC_Fraud_Trans_PostgreSQL_To_Raw"
+
+                        echo "Triggering ADF pipeline: ${PIPELINE} in ${ADF_NAME}"
+                        az datafactory pipeline create-run \
+                            --factory-name "${ADF_NAME}" \
+                            --resource-group "${RG}" \
+                            --name "${PIPELINE}"
+                    '''
+                }
+            }
+        }
+
+    }
+
+    post {
+        success {
+            echo 'Azure cc_fraud_pipeline deployed successfully.'
+            echo 'Flow: PostgreSQL → ADF → ADLS raw → Databricks curated → Databricks gold → Synapse'
+        }
+        failure {
+            echo 'Deployment failed. Check terraform plan output and Databricks logs.'
+        }
+        always {
+            dir("${IAC_DIR}") {
+                sh 'rm -f tfplan'
+            }
+        }
+    }
+}

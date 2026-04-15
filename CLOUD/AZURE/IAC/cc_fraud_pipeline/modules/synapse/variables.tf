@@ -1,0 +1,10 @@
+variable "resource_group_name" {}
+variable "location" {}
+variable "project" {}
+variable "environment" {}
+variable "adls_account_name" {}
+variable "adls_account_id" {}
+variable "gold_container_name" {}
+variable "adls_dfs_endpoint" {}
+variable "existing_workspace_name" {}
+variable "existing_workspace_rg" {}
