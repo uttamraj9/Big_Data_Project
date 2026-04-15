@@ -10,7 +10,7 @@ pipeline {
     }
 
     environment {
-        VENV_DIR        = '/var/lib/jenkins/venvs/unit_testing_bd'
+        VENV_DIR        = '/var/lib/jenkins/venvs/curated_layer_py38'
         EDGE_NODE       = 'ec2-user@13.41.167.97'
         SSH_KEY         = '/var/lib/jenkins/.ssh/cloudera_edge.pem'
         CURATED_SRC     = 'ON_PREM/data_ingestion_batch/src/curated_layer'
@@ -27,7 +27,7 @@ pipeline {
                 echo "Setting up Python virtual environment at ${VENV_DIR} …"
                 sh """
                     if [ ! -d "${VENV_DIR}" ]; then
-                        python3 -m venv "${VENV_DIR}"
+                        /usr/local/bin/python3.8 -m venv "${VENV_DIR}"
                     fi
                     source "${VENV_DIR}/bin/activate"
                     pip install --upgrade pip

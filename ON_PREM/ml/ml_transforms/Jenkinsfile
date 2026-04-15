@@ -1,11 +1,14 @@
 pipeline{
     agent any
     triggers{
-        // run and check every 15 minutes
+        // run and check every 12 hours
         cron('H */12 * * *')
     }
     environment {
-        SPARK_HOME = '/opt/spark-3.5.1-bin-hadoop3'
+        SSH_KEY    = '/var/lib/jenkins/.ssh/cloudera_edge.pem'
+        EDGE_NODE  = 'ec2-user@13.41.167.97'
+        REMOTE_TMP = '/tmp/ml_transforms_deploy'
+        ML_SRC     = 'ON_PREM/ml/ml_transforms'
     }
     stages{
         stage("Execute Full and Inc for curation"){
@@ -17,65 +20,36 @@ pipeline{
                     if(!fullLoadDone){
 
                         echo "Running Full Load..."
-                        sh '${SPARK_HOME}/bin/spark-submit --master local[*] ON_PREM/ml/ml_transforms/full_ml_trans.py'
-                        // sh 'spark-submit --master local[*] ON_PREM/ml/ml_transforms/incr_ml_trans.py'
+                        sh """
+                            ssh -i ${SSH_KEY} -o StrictHostKeyChecking=no ${EDGE_NODE} \
+                                "mkdir -p ${REMOTE_TMP}"
+                            scp -i ${SSH_KEY} -o StrictHostKeyChecking=no \
+                                ${ML_SRC}/full_ml_trans.py \
+                                ${EDGE_NODE}:${REMOTE_TMP}/
+                            ssh -i ${SSH_KEY} -o StrictHostKeyChecking=no ${EDGE_NODE} \
+                                "spark-submit --master yarn --deploy-mode client \
+                                 --name ml-full-transforms \
+                                 ${REMOTE_TMP}/full_ml_trans.py"
+                        """
 
                         writeFile file: 'full_load_done.txt', text: 'done'
 
                     } else{
                         echo "Running incremental load..."
-                        sh '${SPARK_HOME}/bin/spark-submit --master local[*] ON_PREM/ml/ml_transforms/incr_ml_trans.py'
-                        // echo "Checking if Incremental Load is Needed..."
-                        
-                        // would not work on beeline
-                        // def raw_count = sh(script: "hive -S -e 'SELECT COUNT(*) FROM bd_class_project.cc_fraud_trans'", returnStdout: true).trim() 
-                        // def curated_count = sh(script: "hive -S -e 'SELECT COUNT(*) FROM bd_class_project.ml_from_csv'", returnStdout: true).trim() 
-                        
-                        // def raw_count = sh(
-                        //     script: '''
-                        //         hive -e "SET hive.cli.print.header=false;
-                        //                 SELECT COUNT(*) FROM bd_class_project.cc_fraud_trans;" \
-                        //         | grep -Eo '[0-9]+' | head -1
-                        //     ''',
-                        //     returnStdout: true
-                        // ).trim()
-
-                        // def curated_count = sh(
-                        //     script: '''
-                        //         hive -e "SET hive.cli.print.header=false;
-                        //                 SELECT COUNT(*) FROM bd_class_project.ml_from_csv;" \
-                        //         | grep -Eo '[0-9]+' | head -1
-                        //     ''',
-                        //     returnStdout: true
-                        // ).trim()
-
-                        // echo raw_count
-                        // echo curated_count
-
-                        // if(raw_count.toInteger() > curated_count.toInteger()){
-                            
-                        //     echo "Running incremental load..."
-                        //     sh 'spark-submit --master local[*] ON_PREM/ml/ml_transforms/incr_ml_trans.py'
-
-                        // } else{
-
-                        //     echo "No new data. Skipping."
-
-                        // }
-
+                        sh """
+                            ssh -i ${SSH_KEY} -o StrictHostKeyChecking=no ${EDGE_NODE} \
+                                "mkdir -p ${REMOTE_TMP}"
+                            scp -i ${SSH_KEY} -o StrictHostKeyChecking=no \
+                                ${ML_SRC}/incr_ml_trans.py \
+                                ${EDGE_NODE}:${REMOTE_TMP}/
+                            ssh -i ${SSH_KEY} -o StrictHostKeyChecking=no ${EDGE_NODE} \
+                                "spark-submit --master yarn --deploy-mode client \
+                                 --name ml-incr-transforms \
+                                 ${REMOTE_TMP}/incr_ml_trans.py"
+                        """
                     }
                 }
             }
         }
     }
 }
-
-// pipeline{
-//     stages{
-//         stage{
-//             steps{
-//                 echo ""
-//             }
-//         }
-//     }
-// }
