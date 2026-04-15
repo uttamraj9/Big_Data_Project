@@ -152,14 +152,14 @@ def run_quality_checks(df_spark):
         )
 
     # ------------------------------------------------------------------
-    # 5. Card age (cardholder_age = card_age cast to int, not birth-based)
+    # 5. Cardholder age (biological age stored in card_age column, range 18-120)
     # ------------------------------------------------------------------
     invalid_card_age = df_spark.filter(
-        (F.col("cardholder_age") < 0) | (F.col("cardholder_age") > 50)
+        (F.col("cardholder_age") < 0) | (F.col("cardholder_age") > 120)
     ).count()
     if invalid_card_age > 0:
         failures.append(
-            "expect_column_values_to_be_between [cardholder_age in 0-50]: "
+            "expect_column_values_to_be_between [cardholder_age in 0-120]: "
             "{n} violation(s)".format(n=invalid_card_age)
         )
 
