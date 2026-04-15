@@ -124,6 +124,7 @@ pipeline {
                             --deploy-mode client \
                             --name curated-data-quality \
                             --conf spark.sql.hive.convertMetastoreParquet=false \
+                            --conf spark.hadoop.hive.metastore.uris=thrift://ip-172-31-6-42.eu-west-2.compute.internal:9083 \
                             ${REMOTE_TMP}/great_expectations_suite.py"
                 """
             }

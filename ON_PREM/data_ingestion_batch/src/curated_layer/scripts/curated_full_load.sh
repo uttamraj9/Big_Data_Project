@@ -23,6 +23,7 @@ spark-submit \
     --name curated-full-load \
     --conf spark.sql.hive.convertMetastoreParquet=false \
     --conf spark.yarn.submit.waitAppCompletion=true \
+    --conf spark.hadoop.hive.metastore.uris=thrift://ip-172-31-6-42.eu-west-2.compute.internal:9083 \
     --py-files "${SPARK_DIR}/transformations.py" \
     "${SPARK_DIR}/full_load.py"
 

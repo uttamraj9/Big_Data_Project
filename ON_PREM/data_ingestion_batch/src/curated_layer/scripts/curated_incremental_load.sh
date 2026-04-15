@@ -23,6 +23,7 @@ spark-submit \
     --name curated-incremental-load \
     --conf spark.sql.hive.convertMetastoreParquet=false \
     --conf spark.yarn.submit.waitAppCompletion=true \
+    --conf spark.hadoop.hive.metastore.uris=thrift://ip-172-31-6-42.eu-west-2.compute.internal:9083 \
     --py-files "${SPARK_DIR}/transformations.py" \
     "${SPARK_DIR}/incremental_load.py"
 
