@@ -44,16 +44,16 @@ resource "azurerm_resource_group" "itc_bigdata" {
   }
 }
 
-# ─── bdazuretraining group — Contributor on the RG ───────────
-data "azuread_group" "bdazuretraining" {
-  display_name     = "bdazuretraining"
+# ─── ITC_BD_Group_FE — Contributor on the RG ─────────────────
+data "azuread_group" "itc_bd_group_fe" {
+  display_name     = "ITC_BD_Group_FE"
   security_enabled = true
 }
 
-resource "azurerm_role_assignment" "bdazuretraining_contributor" {
+resource "azurerm_role_assignment" "itc_bd_group_fe_contributor" {
   scope                = azurerm_resource_group.itc_bigdata.id
   role_definition_name = "Contributor"
-  principal_id         = data.azuread_group.bdazuretraining.object_id
+  principal_id         = data.azuread_group.itc_bd_group_fe.object_id
 }
 
 # ─── Modules ─────────────────────────────────────────────────
@@ -119,6 +119,7 @@ module "synapse" {
   adls_filesystem_id     = module.adls.synapse_filesystem_id
   synapse_sql_admin      = var.synapse_sql_admin
   synapse_sql_password   = var.synapse_sql_password
+  studio_access_groups   = var.studio_access_groups
 
   depends_on = [module.adls]
 }

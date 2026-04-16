@@ -81,3 +81,10 @@ variable "pg_password" {
   sensitive   = true
   default     = "admin123"
 }
+
+# ─── Synapse Studio access groups ────────────────────────────
+variable "studio_access_groups" {
+  description = "Map of AAD group display_name => object_id granted Synapse Contributor + ADLS Reader. Add a new entry to onboard another group — no module changes needed."
+  type        = map(string)
+  default     = {}
+}

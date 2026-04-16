@@ -17,3 +17,10 @@ pg_port     = 5432
 pg_database = "testdb"
 pg_username = "admin"
 pg_password = "admin123"
+
+# ─── Synapse Studio access ────────────────────────────────────
+# Add a new group here (display_name = object_id) to grant
+# Synapse Contributor + ADLS Reader — then run: terraform apply
+studio_access_groups = {
+  "ITC_BD_Group_FE" = "0b22faf8-f328-4fa4-b2e6-1d0728283eee"
+}

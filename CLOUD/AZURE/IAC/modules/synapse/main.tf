@@ -34,3 +34,21 @@ resource "azurerm_role_assignment" "synapse_adls_access" {
   principal_id         = azurerm_synapse_workspace.synapse.identity[0].principal_id
 }
 
+# ─── Synapse Studio access for AAD groups ────────────────────
+# To onboard a new group: add one entry to studio_access_groups in terraform.tfvars
+# e.g.  "ITC_BD_Group_Data" = "<object-id>"
+
+resource "azurerm_synapse_role_assignment" "studio_access" {
+  for_each             = var.studio_access_groups
+  synapse_workspace_id = azurerm_synapse_workspace.synapse.id
+  role_name            = "Synapse Contributor"
+  principal_id         = each.value
+}
+
+resource "azurerm_role_assignment" "group_adls_reader" {
+  for_each             = var.studio_access_groups
+  scope                = var.adls_account_id
+  role_definition_name = "Storage Blob Data Reader"
+  principal_id         = each.value
+}
+
