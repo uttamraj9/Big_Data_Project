@@ -6,6 +6,7 @@ adf_name                         = "itc-bd-ne-adf"
 key_vault_name                   = "itc-bd-ne-kv"
 databricks_workspace_name        = "itc-bd-ne-adb"
 databricks_workspace_resource_id = "/subscriptions/3a72be92-287b-4f1e-840a-5e3e71100139/resourceGroups/Itc_Bigdata/providers/Microsoft.Databricks/workspaces/itc-bd-ne-adb"
+databricks_workspace_host        = "adb-7405604468967976.16.azuredatabricks.net"
 synapse_workspace_name           = "itc-bd-ne-synapse"
 pg_host                          = "13.42.152.118"
 pg_port                          = 5432

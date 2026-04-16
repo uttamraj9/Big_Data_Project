@@ -39,6 +39,11 @@ variable "databricks_workspace_resource_id" {
   default     = "/subscriptions/3a72be92-287b-4f1e-840a-5e3e71100139/resourceGroups/Itc_Bigdata/providers/Microsoft.Databricks/workspaces/itc-bd-ne-adb"
 }
 
+variable "databricks_workspace_host" {
+  description = "Databricks workspace host URL (without https://)"
+  default     = "adb-7405604468967976.16.azuredatabricks.net"
+}
+
 variable "synapse_workspace_name" {
   description = "Existing Synapse workspace"
   default     = "itc-bd-ne-synapse"

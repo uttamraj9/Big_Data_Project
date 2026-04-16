@@ -15,27 +15,9 @@ data "azurerm_databricks_workspace" "dbw" {
   resource_group_name = var.resource_group_name
 }
 
-# ─── Cluster for cc_fraud transforms ─────────────────────────
-resource "databricks_cluster" "fraud_transform" {
-  cluster_name            = "cc-fraud-transform"
-  spark_version           = "13.3.x-scala2.12"
-  node_type_id            = "Standard_DS3_v2"
-  autotermination_minutes = 20
-  num_workers             = 1
-
-  spark_conf = {
-    "spark.databricks.delta.preview.enabled" = "true"
-  }
-
-  spark_env_vars = {
-    "ADLS_ACCOUNT_NAME" = var.adls_account_name
-    "RAW_CONTAINER"     = var.raw_container_name
-    "CURATED_CONTAINER" = var.curated_container_name
-    "GOLD_CONTAINER"    = var.gold_container_name
-  }
-}
-
-# ─── Job: Raw → Curated (02:30 UTC, after ADF ingest at 01:00)
+# ─── Job: Raw → Curated (02:30 UTC) ─────────────────────────
+# Uses job clusters (new_cluster) — no persistent cluster needed,
+# so Terraform doesn't allocate VMs at plan/apply time.
 resource "databricks_job" "raw_to_curated" {
   name = "cc-fraud-raw-to-curated"
 
@@ -52,15 +34,33 @@ resource "databricks_job" "raw_to_curated" {
       }
     }
 
-    existing_cluster_id = databricks_cluster.fraud_transform.id
+    new_cluster {
+      num_workers   = 1
+      spark_version = "13.3.x-scala2.12"
+      node_type_id  = "Standard_DS3_v2"
+
+      azure_attributes {
+        availability    = "ON_DEMAND_AZURE"
+        first_on_demand = 1
+      }
+
+      spark_conf = {
+        "spark.databricks.delta.preview.enabled" = "true"
+      }
+
+      spark_env_vars = {
+        "ADLS_ACCOUNT_NAME" = var.adls_account_name
+        "RAW_CONTAINER"     = var.raw_container_name
+        "CURATED_CONTAINER" = var.curated_container_name
+        "GOLD_CONTAINER"    = var.gold_container_name
+      }
+    }
   }
 
   schedule {
     quartz_cron_expression = "0 30 2 * * ?"
     timezone_id            = "UTC"
   }
-
-  depends_on = [databricks_cluster.fraud_transform]
 }
 
 # ─── Job: Curated → Gold (03:30 UTC) ─────────────────────────
@@ -80,13 +80,30 @@ resource "databricks_job" "curated_to_gold" {
       }
     }
 
-    existing_cluster_id = databricks_cluster.fraud_transform.id
+    new_cluster {
+      num_workers   = 1
+      spark_version = "13.3.x-scala2.12"
+      node_type_id  = "Standard_DS3_v2"
+
+      azure_attributes {
+        availability    = "ON_DEMAND_AZURE"
+        first_on_demand = 1
+      }
+
+      spark_conf = {
+        "spark.databricks.delta.preview.enabled" = "true"
+      }
+
+      spark_env_vars = {
+        "ADLS_ACCOUNT_NAME" = var.adls_account_name
+        "CURATED_CONTAINER" = var.curated_container_name
+        "GOLD_CONTAINER"    = var.gold_container_name
+      }
+    }
   }
 
   schedule {
     quartz_cron_expression = "0 30 3 * * ?"
     timezone_id            = "UTC"
   }
-
-  depends_on = [databricks_cluster.fraud_transform]
 }

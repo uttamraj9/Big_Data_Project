@@ -16,6 +16,10 @@ terraform {
       source  = "hashicorp/local"
       version = "~> 2.4"
     }
+    null = {
+      source  = "hashicorp/null"
+      version = "~> 3.2"
+    }
   }
   required_version = ">= 1.5.0"
 }
@@ -32,7 +36,9 @@ provider "azuread" {
 
 # Databricks provider points to the existing workspace
 provider "databricks" {
+  host                        = "https://${var.databricks_workspace_host}"
   azure_workspace_resource_id = var.databricks_workspace_resource_id
+  azure_tenant_id             = var.tenant_id
 }
 
 # ─── Data Sources ────────────────────────────────────────────
