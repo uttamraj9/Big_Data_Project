@@ -1,0 +1,30 @@
+{
+  "name": "cc-fraud-full-load",
+  "tasks": [{
+    "task_key": "full_load_raw_to_curated",
+    "notebook_task": {
+      "notebook_path": "/Shared/cc_fraud_pipeline/raw_to_curated",
+      "base_parameters": {
+        "adls_account_name": "itcbdneadls",
+        "raw_container": "raw",
+        "curated_container": "curated",
+        "table_name": "cc_fraud_trans",
+        "ingestion_date": "full_load"
+      }
+    },
+    "new_cluster": {
+      "num_workers": 0,
+      "spark_version": "13.3.x-scala2.12",
+      "node_type_id": "Standard_D2ads_v6",
+      "spark_conf": {
+        "spark.databricks.cluster.profile": "singleNode",
+        "spark.master": "local[*]",
+        "spark.databricks.delta.preview.enabled": "true",
+        "spark.sql.extensions": "io.delta.sql.DeltaSparkSessionExtension",
+        "spark.sql.catalog.spark_catalog": "org.apache.spark.sql.delta.catalog.DeltaCatalog"
+      },
+      "custom_tags": { "ResourceClass": "SingleNode" },
+      "azure_attributes": { "availability": "ON_DEMAND_AZURE", "first_on_demand": 1 }
+    }
+  }]
+}

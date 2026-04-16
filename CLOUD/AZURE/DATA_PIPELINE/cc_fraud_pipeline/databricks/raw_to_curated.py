@@ -241,16 +241,20 @@ else:
 # ===========================================================
 # Step 13 – Advance watermark to max(timestamp) of this batch
 #
-# ADF reads this watermark on the next run and filters PostgreSQL
-# with: WHERE timestamp > last_watermark
+# Only updated for incremental runs. Full load (ingestion_date=full_load)
+# must NOT overwrite the watermark — the next daily incremental run should
+# still continue from where it left off before the full reload.
 # ===========================================================
-max_ts = df.agg(F.max("timestamp")).collect()[0][0]
-if max_ts is not None:
-    new_watermark = json.dumps({"last_watermark": str(max_ts)})
-    dbutils.fs.put(WATERMARK_PATH, new_watermark, overwrite=True)
-    print(f"[INFO] Watermark advanced to: {max_ts}")
+if INGESTION_DATE == "full_load":
+    print("[INFO] Full load run — watermark NOT updated (incremental position preserved)")
 else:
-    print("[WARN] Could not determine max timestamp — watermark NOT updated")
+    max_ts = df.agg(F.max("timestamp")).collect()[0][0]
+    if max_ts is not None:
+        new_watermark = json.dumps({"last_watermark": str(max_ts)})
+        dbutils.fs.put(WATERMARK_PATH, new_watermark, overwrite=True)
+        print(f"[INFO] Watermark advanced to: {max_ts}")
+    else:
+        print("[WARN] Could not determine max timestamp — watermark NOT updated")
 
 print(f"[INFO] Curated Delta table at: {CURATED_PATH}")
 print("[INFO] raw_to_curated (incremental) complete.")
