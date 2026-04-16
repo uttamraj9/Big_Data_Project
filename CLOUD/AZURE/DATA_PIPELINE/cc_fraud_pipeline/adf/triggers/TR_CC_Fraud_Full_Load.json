@@ -1,10 +1,11 @@
 {
   "type": "ScheduleTrigger",
+  "description": "Manual/on-demand trigger for full load. Disabled by default — start it manually when you need to reload all data from PostgreSQL.",
   "typeProperties": {
     "recurrence": {
-      "frequency": "Day",
+      "frequency": "Month",
       "interval": 1,
-      "startTime": "2024-01-01T01:00:00Z",
+      "startTime": "2024-01-01T00:00:00Z",
       "timeZone": "UTC"
     }
   },
@@ -15,7 +16,7 @@
         "type": "PipelineReference"
       },
       "parameters": {
-        "load_type": "incremental"
+        "load_type": "full"
       }
     }
   ]
