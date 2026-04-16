@@ -8,10 +8,6 @@ terraform {
       source  = "hashicorp/azuread"
       version = "~> 2.47"
     }
-    databricks = {
-      source  = "databricks/databricks"
-      version = "~> 1.36"
-    }
     local = {
       source  = "hashicorp/local"
       version = "~> 2.4"
@@ -34,45 +30,62 @@ provider "azuread" {
   tenant_id = var.tenant_id
 }
 
-# Databricks provider points to the existing workspace
-provider "databricks" {
-  host                        = "https://${var.databricks_workspace_host}"
-  azure_workspace_resource_id = var.databricks_workspace_resource_id
-  azure_tenant_id             = var.tenant_id
-}
-
-# ─── Data Sources ────────────────────────────────────────────
+# ─── Identity context ─────────────────────────────────────────
 data "azurerm_client_config" "current" {}
 
-data "azurerm_resource_group" "itc_bigdata" {
-  name = var.resource_group_name
+# ─── Resource Group ───────────────────────────────────────────
+resource "azurerm_resource_group" "itc_bigdata" {
+  name     = var.resource_group_name
+  location = var.location
+
+  tags = {
+    ManagedBy = "Terraform"
+    Project   = "cc_fraud_pipeline"
+  }
+}
+
+# ─── bdazuretraining group — Contributor on the RG ───────────
+data "azuread_group" "bdazuretraining" {
+  display_name     = "bdazuretraining"
+  security_enabled = true
+}
+
+resource "azurerm_role_assignment" "bdazuretraining_contributor" {
+  scope                = azurerm_resource_group.itc_bigdata.id
+  role_definition_name = "Contributor"
+  principal_id         = data.azuread_group.bdazuretraining.object_id
 }
 
 # ─── Modules ─────────────────────────────────────────────────
 
 module "adls" {
   source              = "./modules/adls"
-  resource_group_name = data.azurerm_resource_group.itc_bigdata.name
+  resource_group_name = azurerm_resource_group.itc_bigdata.name
+  location            = azurerm_resource_group.itc_bigdata.location
   adls_account_name   = var.adls_account_name
 }
 
 module "keyvault" {
-  source            = "./modules/keyvault"
-  resource_group_name = data.azurerm_resource_group.itc_bigdata.name
-  key_vault_name    = var.key_vault_name
-  current_object_id = data.azurerm_client_config.current.object_id
-  tenant_id         = var.tenant_id
-  pg_host           = var.pg_host
-  pg_port           = var.pg_port
-  pg_database       = var.pg_database
-  pg_username       = var.pg_username
-  pg_password       = var.pg_password
-  adls_account_key  = module.adls.storage_account_key
+  source              = "./modules/keyvault"
+  resource_group_name = azurerm_resource_group.itc_bigdata.name
+  location            = azurerm_resource_group.itc_bigdata.location
+  key_vault_name      = var.key_vault_name
+  current_object_id   = data.azurerm_client_config.current.object_id
+  tenant_id           = var.tenant_id
+  pg_host             = var.pg_host
+  pg_port             = var.pg_port
+  pg_database         = var.pg_database
+  pg_username         = var.pg_username
+  pg_password         = var.pg_password
+  adls_account_key    = module.adls.storage_account_key
+
+  depends_on = [module.adls]
 }
 
 module "adf" {
   source                  = "./modules/adf"
-  resource_group_name     = data.azurerm_resource_group.itc_bigdata.name
+  resource_group_name     = azurerm_resource_group.itc_bigdata.name
+  location                = azurerm_resource_group.itc_bigdata.location
   adf_name                = var.adf_name
   adls_account_name       = module.adls.storage_account_name
   adls_account_key        = module.adls.storage_account_key
@@ -89,19 +102,26 @@ module "adf" {
 }
 
 module "databricks" {
-  source                 = "./modules/databricks"
+  source                    = "./modules/databricks"
+  resource_group_name       = azurerm_resource_group.itc_bigdata.name
+  location                  = azurerm_resource_group.itc_bigdata.location
   databricks_workspace_name = var.databricks_workspace_name
-  resource_group_name    = data.azurerm_resource_group.itc_bigdata.name
-  adls_account_name      = module.adls.storage_account_name
-  raw_container_name     = module.adls.raw_container_name
-  curated_container_name = module.adls.curated_container_name
-  gold_container_name    = module.adls.gold_container_name
+  adls_account_name         = module.adls.storage_account_name
+  raw_container_name        = module.adls.raw_container_name
+  curated_container_name    = module.adls.curated_container_name
+  gold_container_name       = module.adls.gold_container_name
 }
 
 module "synapse" {
-  source                  = "./modules/synapse"
-  resource_group_name     = data.azurerm_resource_group.itc_bigdata.name
-  synapse_workspace_name  = var.synapse_workspace_name
-  adls_account_name       = module.adls.storage_account_name
-  adls_account_id         = module.adls.storage_account_id
+  source                 = "./modules/synapse"
+  resource_group_name    = azurerm_resource_group.itc_bigdata.name
+  location               = azurerm_resource_group.itc_bigdata.location
+  synapse_workspace_name = var.synapse_workspace_name
+  adls_account_name      = module.adls.storage_account_name
+  adls_account_id        = module.adls.storage_account_id
+  adls_filesystem_id     = module.adls.synapse_filesystem_id
+  synapse_sql_admin      = var.synapse_sql_admin
+  synapse_sql_password   = var.synapse_sql_password
+
+  depends_on = [module.adls]
 }

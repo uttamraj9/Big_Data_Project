@@ -1,28 +1,40 @@
 terraform {
   required_providers {
-    azurerm = {
-      source = "hashicorp/azurerm"
-    }
-    local = {
-      source = "hashicorp/local"
-    }
+    azurerm = { source = "hashicorp/azurerm" }
+    local   = { source = "hashicorp/local" }
   }
 }
 
-# ─── Reference existing Synapse workspace ────────────────────
-data "azurerm_synapse_workspace" "existing" {
-  name                = var.synapse_workspace_name
-  resource_group_name = var.resource_group_name
+# ─── Synapse workspace ────────────────────────────────────────
+resource "azurerm_synapse_workspace" "synapse" {
+  name                                 = var.synapse_workspace_name
+  resource_group_name                  = var.resource_group_name
+  location                             = var.location
+  storage_data_lake_gen2_filesystem_id = var.adls_filesystem_id
+  sql_administrator_login              = var.synapse_sql_admin
+  sql_administrator_login_password     = var.synapse_sql_password
+
+  identity {
+    type = "SystemAssigned"
+  }
 }
 
-# ─── Grant Synapse Managed Identity access to ADLS ───────────
+# ─── Allow Azure services to reach Synapse SQL On-Demand ─────
+resource "azurerm_synapse_firewall_rule" "allow_azure" {
+  name                 = "AllowAllWindowsAzureIps"
+  synapse_workspace_id = azurerm_synapse_workspace.synapse.id
+  start_ip_address     = "0.0.0.0"
+  end_ip_address       = "0.0.0.0"
+}
+
+# ─── Grant Synapse Managed Identity read access to ADLS ──────
 resource "azurerm_role_assignment" "synapse_adls_access" {
   scope                = var.adls_account_id
   role_definition_name = "Storage Blob Data Reader"
-  principal_id         = data.azurerm_synapse_workspace.existing.identity[0].principal_id
+  principal_id         = azurerm_synapse_workspace.synapse.identity[0].principal_id
 }
 
-# ─── Write gold SQL scripts to DATA_PIPELINE for Jenkinsfile deploy
+# ─── Write gold SQL scripts for Jenkins deploy ───────────────
 resource "local_file" "gold_db_sql" {
   filename = "${path.module}/../../../../DATA_PIPELINE/cc_fraud_pipeline/synapse/01_create_gold_db.sql"
   content  = <<-SQL

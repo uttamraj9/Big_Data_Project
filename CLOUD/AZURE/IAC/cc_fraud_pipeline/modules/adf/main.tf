@@ -6,30 +6,33 @@ terraform {
   }
 }
 
-# ─── Reference existing ADF ──────────────────────────────────
-data "azurerm_data_factory" "adf" {
+# ─── Azure Data Factory ───────────────────────────────────────
+resource "azurerm_data_factory" "adf" {
   name                = var.adf_name
   resource_group_name = var.resource_group_name
+  location            = var.location
+
+  identity {
+    type = "SystemAssigned"
+  }
 }
 
-# ─── Grant ADF Managed Identity "Key Vault Secrets User" (RBAC mode) ─
+# ─── Grant ADF Managed Identity "Key Vault Secrets User" (RBAC) ─
 resource "azurerm_role_assignment" "adf_kv_secrets_user" {
   scope                = var.key_vault_id
   role_definition_name = "Key Vault Secrets User"
-  principal_id         = data.azurerm_data_factory.adf.identity[0].principal_id
+  principal_id         = azurerm_data_factory.adf.identity[0].principal_id
 }
 
 # ─── Linked Service: Key Vault ───────────────────────────────
 resource "azurerm_data_factory_linked_service_key_vault" "kv_ls" {
   name            = "LS_CC_Fraud_KeyVault"
-  data_factory_id = data.azurerm_data_factory.adf.id
+  data_factory_id = azurerm_data_factory.adf.id
   key_vault_id    = var.key_vault_id
   depends_on      = [azurerm_role_assignment.adf_kv_secrets_user]
 }
 
 # ─── PostgreSQL V2 LS + Dataset via AZ CLI ───────────────────
-# azurerm_data_factory_linked_service_postgresql creates the deprecated
-# AzurePostgreSql type; ADF now requires PostgreSqlV2, so we use az CLI.
 locals {
   pg_ls_props = jsonencode({
     type = "PostgreSqlV2"
@@ -123,7 +126,7 @@ resource "null_resource" "pg_fraud_ds" {
 # ─── Linked Service: ADLS Gen2 ───────────────────────────────
 resource "azurerm_data_factory_linked_service_azure_blob_storage" "adls_ls" {
   name            = "LS_CC_Fraud_ADLS"
-  data_factory_id = data.azurerm_data_factory.adf.id
+  data_factory_id = azurerm_data_factory.adf.id
 
   connection_string = "DefaultEndpointsProtocol=https;AccountName=${var.adls_account_name};AccountKey=${var.adls_account_key};EndpointSuffix=core.windows.net"
 }
@@ -131,7 +134,7 @@ resource "azurerm_data_factory_linked_service_azure_blob_storage" "adls_ls" {
 # ─── Dataset: ADLS raw destination ───────────────────────────
 resource "azurerm_data_factory_dataset_delimited_text" "adls_raw_ds" {
   name                = "DS_CC_Fraud_Trans_ADLS_Raw"
-  data_factory_id     = data.azurerm_data_factory.adf.id
+  data_factory_id     = azurerm_data_factory.adf.id
   linked_service_name = azurerm_data_factory_linked_service_azure_blob_storage.adls_ls.name
 
   azure_blob_storage_location {
@@ -151,7 +154,7 @@ resource "azurerm_data_factory_dataset_delimited_text" "adls_raw_ds" {
 # ─── Pipeline: PostgreSQL → ADLS raw ─────────────────────────
 resource "azurerm_data_factory_pipeline" "pg_to_raw" {
   name            = "PL_CC_Fraud_Trans_PG_To_Raw"
-  data_factory_id = data.azurerm_data_factory.adf.id
+  data_factory_id = azurerm_data_factory.adf.id
   description     = "Copies cc_fraud_trans from ON_PREM PostgreSQL (${var.pg_host}) to ADLS Gen2 raw layer"
 
   activities_json = jsonencode([
@@ -173,9 +176,9 @@ resource "azurerm_data_factory_pipeline" "pg_to_raw" {
         }
         enableStaging = false
         translator = {
-          type                    = "TabularTranslator"
-          typeConversion          = true
-          typeConversionSettings  = { allowDataTruncation = true, treatBooleanAsNumber = false }
+          type                   = "TabularTranslator"
+          typeConversion         = true
+          typeConversionSettings = { allowDataTruncation = true, treatBooleanAsNumber = false }
         }
       }
     }
@@ -190,7 +193,7 @@ resource "azurerm_data_factory_pipeline" "pg_to_raw" {
 # ─── Trigger: Daily at 01:00 UTC ─────────────────────────────
 resource "azurerm_data_factory_trigger_schedule" "daily_trigger" {
   name            = "TR_CC_Fraud_Daily_Ingest"
-  data_factory_id = data.azurerm_data_factory.adf.id
+  data_factory_id = azurerm_data_factory.adf.id
   pipeline_name   = azurerm_data_factory_pipeline.pg_to_raw.name
 
   interval   = 1

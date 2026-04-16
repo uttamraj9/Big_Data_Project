@@ -1,4 +1,5 @@
 variable "resource_group_name" {}
+variable "location" {}
 variable "adf_name" {}
 variable "adls_account_name" {}
 variable "adls_account_key" { sensitive = true }

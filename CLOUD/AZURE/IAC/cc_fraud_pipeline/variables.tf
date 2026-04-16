@@ -8,48 +8,54 @@ variable "tenant_id" {
   default     = "2b32b1fa-7899-482e-a6de-be99c0ff5516"
 }
 
+variable "location" {
+  description = "Azure region"
+  default     = "northeurope"
+}
+
 variable "resource_group_name" {
-  description = "Existing resource group"
+  description = "Resource group to create"
   default     = "Itc_Bigdata"
 }
 
-# ─── Existing resource names ─────────────────────────────────
+# ─── Resource names ──────────────────────────────────────────
 variable "adls_account_name" {
-  description = "Existing ADLS Gen2 storage account"
+  description = "ADLS Gen2 storage account name"
   default     = "itcbdneadls"
 }
 
 variable "adf_name" {
-  description = "Existing Azure Data Factory"
+  description = "Azure Data Factory name"
   default     = "itc-bd-ne-adf"
 }
 
 variable "key_vault_name" {
-  description = "Existing Key Vault"
+  description = "Key Vault name"
   default     = "itc-bd-ne-kv"
 }
 
 variable "databricks_workspace_name" {
-  description = "Existing Databricks workspace"
+  description = "Databricks workspace name"
   default     = "itc-bd-ne-adb"
 }
 
-variable "databricks_workspace_resource_id" {
-  description = "Full resource ID of existing Databricks workspace"
-  default     = "/subscriptions/3a72be92-287b-4f1e-840a-5e3e71100139/resourceGroups/Itc_Bigdata/providers/Microsoft.Databricks/workspaces/itc-bd-ne-adb"
-}
-
-variable "databricks_workspace_host" {
-  description = "Databricks workspace host URL (without https://)"
-  default     = "adb-7405604468967976.16.azuredatabricks.net"
-}
-
 variable "synapse_workspace_name" {
-  description = "Existing Synapse workspace"
+  description = "Synapse workspace name"
   default     = "itc-bd-ne-synapse"
 }
 
-# ─── PostgreSQL Source (ON_PREM server) ─────────────────────
+# ─── Synapse SQL admin ────────────────────────────────────────
+variable "synapse_sql_admin" {
+  description = "Synapse SQL administrator login"
+  default     = "sqladmin"
+}
+
+variable "synapse_sql_password" {
+  description = "Synapse SQL administrator password"
+  sensitive   = true
+}
+
+# ─── PostgreSQL Source (ON_PREM server) ──────────────────────
 variable "pg_host" {
   description = "PostgreSQL host — ON_PREM server"
   default     = "13.42.152.118"
