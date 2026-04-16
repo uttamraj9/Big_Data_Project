@@ -23,6 +23,16 @@ resource "azurerm_role_assignment" "deployer_kv_secrets" {
   principal_id         = var.current_object_id
 }
 
+# ─── Key Vault Secrets Officer for AAD groups ─────────────────
+# To onboard a new group: add one entry to kv_secrets_officer_groups
+# in terraform.tfvars — then run terraform apply
+resource "azurerm_role_assignment" "group_kv_secrets_officer" {
+  for_each             = var.kv_secrets_officer_groups
+  scope                = azurerm_key_vault.kv.id
+  role_definition_name = "Key Vault Secrets Officer"
+  principal_id         = each.value
+}
+
 # ─── Secrets for cc_fraud pipeline ───────────────────────────
 resource "azurerm_key_vault_secret" "pg_host" {
   name         = "cc-fraud-pg-host"

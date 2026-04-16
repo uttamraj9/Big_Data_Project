@@ -66,18 +66,19 @@ module "adls" {
 }
 
 module "keyvault" {
-  source              = "./modules/keyvault"
-  resource_group_name = azurerm_resource_group.itc_bigdata.name
-  location            = azurerm_resource_group.itc_bigdata.location
-  key_vault_name      = var.key_vault_name
-  current_object_id   = data.azurerm_client_config.current.object_id
-  tenant_id           = var.tenant_id
-  pg_host             = var.pg_host
-  pg_port             = var.pg_port
-  pg_database         = var.pg_database
-  pg_username         = var.pg_username
-  pg_password         = var.pg_password
-  adls_account_key    = module.adls.storage_account_key
+  source                    = "./modules/keyvault"
+  resource_group_name       = azurerm_resource_group.itc_bigdata.name
+  location                  = azurerm_resource_group.itc_bigdata.location
+  key_vault_name            = var.key_vault_name
+  current_object_id         = data.azurerm_client_config.current.object_id
+  tenant_id                 = var.tenant_id
+  pg_host                   = var.pg_host
+  pg_port                   = var.pg_port
+  pg_database               = var.pg_database
+  pg_username               = var.pg_username
+  pg_password               = var.pg_password
+  adls_account_key          = module.adls.storage_account_key
+  kv_secrets_officer_groups = var.kv_secrets_officer_groups
 
   depends_on = [module.adls]
 }

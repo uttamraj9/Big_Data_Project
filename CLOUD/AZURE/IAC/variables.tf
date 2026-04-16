@@ -88,3 +88,9 @@ variable "studio_access_groups" {
   type        = map(string)
   default     = {}
 }
+
+variable "kv_secrets_officer_groups" {
+  description = "Map of AAD group display_name => object_id granted Key Vault Secrets Officer. Add a new entry to allow another group to create/manage secrets."
+  type        = map(string)
+  default     = {}
+}

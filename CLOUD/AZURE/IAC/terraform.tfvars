@@ -24,3 +24,9 @@ pg_password = "admin123"
 studio_access_groups = {
   "ITC_BD_Group_FE" = "0b22faf8-f328-4fa4-b2e6-1d0728283eee"
 }
+
+# ─── Key Vault Secrets Officer ────────────────────────────────
+# Add a new group here to grant create/read/update/delete on KV secrets
+kv_secrets_officer_groups = {
+  "ITC_BD_Group_FE" = "0b22faf8-f328-4fa4-b2e6-1d0728283eee"
+}
