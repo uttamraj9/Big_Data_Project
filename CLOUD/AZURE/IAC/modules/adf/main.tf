@@ -172,7 +172,7 @@ resource "azurerm_data_factory_pipeline" "pg_to_raw" {
         sink = {
           type           = "DelimitedTextSink"
           storeSettings  = { type = "AzureBlobStorageWriteSettings", copyBehavior = "PreserveHierarchy" }
-          formatSettings = { type = "DelimitedTextWriteSettings", quoteAllText = false, fileExtension = ".csv" }
+          formatSettings = { type = "DelimitedTextWriteSettings", fileExtension = ".csv" }
         }
         enableStaging = false
         translator = {
