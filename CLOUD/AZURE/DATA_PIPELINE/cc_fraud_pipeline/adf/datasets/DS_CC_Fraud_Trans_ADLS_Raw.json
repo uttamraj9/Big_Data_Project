@@ -1,0 +1,19 @@
+{
+  "type": "DelimitedText",
+  "linkedServiceName": {
+    "referenceName": "LS_CC_Fraud_ADLS",
+    "type": "LinkedServiceReference"
+  },
+  "typeProperties": {
+    "location": {
+      "type": "AzureBlobStorageLocation",
+      "container": "raw",
+      "folderPath": "cc_fraud_trans",
+      "fileName": "cc_fraud_trans.csv"
+    },
+    "columnDelimiter": ",",
+    "rowDelimiter": "\n",
+    "firstRowAsHeader": true,
+    "quoteChar": "\""
+  }
+}

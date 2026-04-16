@@ -1,0 +1,42 @@
+{
+  "description": "Copies cc_fraud_trans from PostgreSQL to ADLS Gen2 raw layer",
+  "activities": [
+    {
+      "name": "Copy_CC_Fraud_Trans",
+      "type": "Copy",
+      "inputs": [
+        { "referenceName": "DS_CC_Fraud_Trans_PG", "type": "DatasetReference" }
+      ],
+      "outputs": [
+        { "referenceName": "DS_CC_Fraud_Trans_ADLS_Raw", "type": "DatasetReference" }
+      ],
+      "typeProperties": {
+        "source": {
+          "type": "PostgreSqlV2Source",
+          "query": "SELECT * FROM cc_fraud_trans",
+          "queryTimeout": "02:00:00"
+        },
+        "sink": {
+          "type": "DelimitedTextSink",
+          "storeSettings": {
+            "type": "AzureBlobStorageWriteSettings",
+            "copyBehavior": "PreserveHierarchy"
+          },
+          "formatSettings": {
+            "type": "DelimitedTextWriteSettings",
+            "fileExtension": ".csv"
+          }
+        },
+        "enableStaging": false,
+        "translator": {
+          "type": "TabularTranslator",
+          "typeConversion": true,
+          "typeConversionSettings": {
+            "allowDataTruncation": true,
+            "treatBooleanAsNumber": false
+          }
+        }
+      }
+    }
+  ]
+}

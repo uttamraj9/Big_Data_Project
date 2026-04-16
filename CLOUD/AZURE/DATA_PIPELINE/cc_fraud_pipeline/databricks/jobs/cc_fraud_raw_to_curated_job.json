@@ -1,0 +1,32 @@
+{
+  "name": "cc-fraud-raw-to-curated",
+  "tasks": [{
+    "task_key": "raw_to_curated",
+    "notebook_task": {
+      "notebook_path": "/Shared/cc_fraud_pipeline/raw_to_curated",
+      "base_parameters": {
+        "adls_account_name": "itcbdneadls",
+        "raw_container": "raw",
+        "curated_container": "curated",
+        "table_name": "cc_fraud_trans"
+      }
+    },
+    "new_cluster": {
+      "num_workers": 0,
+      "spark_version": "13.3.x-scala2.12",
+      "node_type_id": "Standard_D2ads_v6",
+      "spark_conf": {
+        "spark.databricks.cluster.profile": "singleNode",
+        "spark.master": "local[*]",
+        "spark.databricks.delta.preview.enabled": "true"
+      },
+      "custom_tags": { "ResourceClass": "SingleNode" },
+      "azure_attributes": { "availability": "ON_DEMAND_AZURE", "first_on_demand": 1 }
+    }
+  }],
+  "schedule": {
+    "quartz_cron_expression": "0 30 2 * * ?",
+    "timezone_id": "UTC",
+    "pause_status": "UNPAUSED"
+  }
+}

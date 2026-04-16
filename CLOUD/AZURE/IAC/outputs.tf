@@ -18,10 +18,6 @@ output "adf_name" {
   value = module.adf.adf_name
 }
 
-output "adf_pipeline_name" {
-  value = module.adf.pipeline_name
-}
-
 output "databricks_workspace_url" {
   value = module.databricks.workspace_url
 }

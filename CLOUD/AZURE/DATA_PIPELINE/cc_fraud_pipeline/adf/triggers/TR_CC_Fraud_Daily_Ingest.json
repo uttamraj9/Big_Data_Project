@@ -1,0 +1,19 @@
+{
+  "type": "ScheduleTrigger",
+  "typeProperties": {
+    "recurrence": {
+      "frequency": "Day",
+      "interval": 1,
+      "startTime": "2024-01-01T01:00:00Z",
+      "timeZone": "UTC"
+    }
+  },
+  "pipelines": [
+    {
+      "pipelineReference": {
+        "referenceName": "PL_CC_Fraud_Trans_PG_To_Raw",
+        "type": "PipelineReference"
+      }
+    }
+  ]
+}

@@ -1,0 +1,32 @@
+{
+  "name": "cc-fraud-curated-to-gold",
+  "tasks": [{
+    "task_key": "curated_to_gold",
+    "notebook_task": {
+      "notebook_path": "/Shared/cc_fraud_pipeline/curated_to_gold",
+      "base_parameters": {
+        "adls_account_name": "itcbdneadls",
+        "curated_container": "curated",
+        "gold_container": "gold",
+        "table_name": "cc_fraud_trans"
+      }
+    },
+    "new_cluster": {
+      "num_workers": 0,
+      "spark_version": "13.3.x-scala2.12",
+      "node_type_id": "Standard_D2ads_v6",
+      "spark_conf": {
+        "spark.databricks.cluster.profile": "singleNode",
+        "spark.master": "local[*]",
+        "spark.databricks.delta.preview.enabled": "true"
+      },
+      "custom_tags": { "ResourceClass": "SingleNode" },
+      "azure_attributes": { "availability": "ON_DEMAND_AZURE", "first_on_demand": 1 }
+    }
+  }],
+  "schedule": {
+    "quartz_cron_expression": "0 30 3 * * ?",
+    "timezone_id": "UTC",
+    "pause_status": "UNPAUSED"
+  }
+}

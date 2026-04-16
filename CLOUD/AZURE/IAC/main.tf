@@ -89,9 +89,7 @@ module "adf" {
   adf_name                = var.adf_name
   adls_account_name       = module.adls.storage_account_name
   adls_account_key        = module.adls.storage_account_key
-  raw_container_name      = module.adls.raw_container_name
   key_vault_id            = module.keyvault.key_vault_id
-  key_vault_uri           = module.keyvault.key_vault_uri
   pg_host                 = var.pg_host
   pg_port                 = var.pg_port
   pg_database             = var.pg_database
@@ -117,7 +115,6 @@ module "synapse" {
   resource_group_name    = azurerm_resource_group.itc_bigdata.name
   location               = azurerm_resource_group.itc_bigdata.location
   synapse_workspace_name = var.synapse_workspace_name
-  adls_account_name      = module.adls.storage_account_name
   adls_account_id        = module.adls.storage_account_id
   adls_filesystem_id     = module.adls.synapse_filesystem_id
   synapse_sql_admin      = var.synapse_sql_admin

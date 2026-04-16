@@ -1,0 +1,11 @@
+{
+  "type": "PostgreSqlV2Table",
+  "linkedServiceName": {
+    "referenceName": "LS_CC_Fraud_PostgreSQL",
+    "type": "LinkedServiceReference"
+  },
+  "typeProperties": {
+    "schema": "public",
+    "table": "cc_fraud_trans"
+  }
+}
