@@ -1,9 +1,15 @@
 {
-  "description": "Incremental load: copies new cc_fraud_trans records from PostgreSQL to ADLS raw layer using watermark-based change tracking. Watermark is stored in raw/watermark/cc_fraud_trans.json and updated by Databricks raw_to_curated after processing.",
+  "description": "Loads cc_fraud_trans from PostgreSQL to ADLS raw layer. Supports two modes controlled by the load_type parameter:\n  full        — copies all rows (SELECT *), used for initial load or reprocessing\n  incremental — copies only rows WHERE timestamp > last_watermark (default daily run)\nWatermark is stored in raw/watermark/cc_fraud_trans.json and advanced by Databricks after each successful incremental run.",
+  "parameters": {
+    "load_type": {
+      "type": "string",
+      "defaultValue": "incremental"
+    }
+  },
   "activities": [
     {
       "name": "GetWatermark",
-      "description": "Read last processed timestamp from ADLS watermark file",
+      "description": "Read last processed timestamp from ADLS watermark file. Used only by the incremental branch.",
       "type": "Lookup",
       "typeProperties": {
         "source": {
@@ -24,59 +30,118 @@
       }
     },
     {
-      "name": "CopyIncrementalData",
-      "description": "Copy only rows with timestamp > last watermark, partitioned by ingestion date",
-      "type": "Copy",
+      "name": "FullOrIncremental",
+      "description": "Route to full load or incremental load based on the load_type parameter.",
+      "type": "IfCondition",
       "dependsOn": [
         {
           "activity": "GetWatermark",
           "dependencyConditions": ["Succeeded"]
         }
       ],
-      "inputs": [
-        { "referenceName": "DS_CC_Fraud_Trans_PG", "type": "DatasetReference" }
-      ],
-      "outputs": [
-        {
-          "referenceName": "DS_CC_Fraud_Trans_ADLS_Raw",
-          "type": "DatasetReference",
-          "parameters": {
-            "ingestion_date": {
-              "value": "@formatDateTime(utcNow(), 'yyyy-MM-dd')",
-              "type": "Expression"
+      "typeProperties": {
+        "expression": {
+          "value": "@equals(pipeline().parameters.load_type, 'full')",
+          "type": "Expression"
+        },
+        "ifTrueActivities": [
+          {
+            "name": "Copy_Full_Load",
+            "description": "Full load — copies ALL rows from PostgreSQL. Use for initial load or reprocessing. Writes to ingestion_date=full_load/ partition.",
+            "type": "Copy",
+            "inputs": [
+              { "referenceName": "DS_CC_Fraud_Trans_PG", "type": "DatasetReference" }
+            ],
+            "outputs": [
+              {
+                "referenceName": "DS_CC_Fraud_Trans_ADLS_Raw",
+                "type": "DatasetReference",
+                "parameters": {
+                  "ingestion_date": "full_load"
+                }
+              }
+            ],
+            "typeProperties": {
+              "source": {
+                "type": "PostgreSqlV2Source",
+                "query": "SELECT * FROM cc_fraud_trans ORDER BY timestamp",
+                "queryTimeout": "02:00:00"
+              },
+              "sink": {
+                "type": "DelimitedTextSink",
+                "storeSettings": {
+                  "type": "AzureBlobStorageWriteSettings",
+                  "copyBehavior": "PreserveHierarchy"
+                },
+                "formatSettings": {
+                  "type": "DelimitedTextWriteSettings",
+                  "fileExtension": ".csv"
+                }
+              },
+              "enableStaging": false,
+              "translator": {
+                "type": "TabularTranslator",
+                "typeConversion": true,
+                "typeConversionSettings": {
+                  "allowDataTruncation": true,
+                  "treatBooleanAsNumber": false
+                }
+              }
             }
           }
-        }
-      ],
-      "typeProperties": {
-        "source": {
-          "type": "PostgreSqlV2Source",
-          "query": {
-            "value": "@concat('SELECT * FROM cc_fraud_trans WHERE timestamp > ''', activity('GetWatermark').output.firstRow.last_watermark, '''')",
-            "type": "Expression"
-          },
-          "queryTimeout": "02:00:00"
-        },
-        "sink": {
-          "type": "DelimitedTextSink",
-          "storeSettings": {
-            "type": "AzureBlobStorageWriteSettings",
-            "copyBehavior": "PreserveHierarchy"
-          },
-          "formatSettings": {
-            "type": "DelimitedTextWriteSettings",
-            "fileExtension": ".csv"
+        ],
+        "ifFalseActivities": [
+          {
+            "name": "Copy_Incremental",
+            "description": "Incremental load — copies only rows WHERE timestamp > last_watermark. Prevents re-copying already processed data. Writes to ingestion_date=YYYY-MM-DD/ partition for Databricks to pick up.",
+            "type": "Copy",
+            "inputs": [
+              { "referenceName": "DS_CC_Fraud_Trans_PG", "type": "DatasetReference" }
+            ],
+            "outputs": [
+              {
+                "referenceName": "DS_CC_Fraud_Trans_ADLS_Raw",
+                "type": "DatasetReference",
+                "parameters": {
+                  "ingestion_date": {
+                    "value": "@formatDateTime(utcNow(), 'yyyy-MM-dd')",
+                    "type": "Expression"
+                  }
+                }
+              }
+            ],
+            "typeProperties": {
+              "source": {
+                "type": "PostgreSqlV2Source",
+                "query": {
+                  "value": "@concat('SELECT * FROM cc_fraud_trans WHERE timestamp > ''', activity('GetWatermark').output.firstRow.last_watermark, ''' ORDER BY timestamp')",
+                  "type": "Expression"
+                },
+                "queryTimeout": "02:00:00"
+              },
+              "sink": {
+                "type": "DelimitedTextSink",
+                "storeSettings": {
+                  "type": "AzureBlobStorageWriteSettings",
+                  "copyBehavior": "PreserveHierarchy"
+                },
+                "formatSettings": {
+                  "type": "DelimitedTextWriteSettings",
+                  "fileExtension": ".csv"
+                }
+              },
+              "enableStaging": false,
+              "translator": {
+                "type": "TabularTranslator",
+                "typeConversion": true,
+                "typeConversionSettings": {
+                  "allowDataTruncation": true,
+                  "treatBooleanAsNumber": false
+                }
+              }
+            }
           }
-        },
-        "enableStaging": false,
-        "translator": {
-          "type": "TabularTranslator",
-          "typeConversion": true,
-          "typeConversionSettings": {
-            "allowDataTruncation": true,
-            "treatBooleanAsNumber": false
-          }
-        }
+        ]
       }
     }
   ]
