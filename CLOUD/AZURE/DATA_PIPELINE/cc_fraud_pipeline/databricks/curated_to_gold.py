@@ -3,13 +3,20 @@ curated_to_gold.py
 ==================
 Databricks PySpark notebook — Curated → Gold aggregations for cc_fraud_trans.
 
-Reads the curated Parquet layer from ADLS and produces gold-layer aggregation
+Reads the curated Delta table from ADLS and produces gold-layer aggregation
 tables consumed by Synapse Analytics serverless SQL views.
+
+INCREMENTAL LOAD NOTE
+---------------------
+Gold tables are aggregation snapshots recomputed over the full curated Delta
+table on every run. Because the curated layer grows incrementally via Delta
+MERGE, gold always reflects the complete up-to-date dataset without needing
+change tracking at this layer.
 
 ON_PREM equivalent:
     Hive curated table  →  Hive/HBase gold queries  →  BI / ML feature store
 Azure equivalent:
-    ADLS curated/cc_fraud_trans/
+    ADLS curated/cc_fraud_trans/  (Delta table)
         →  this notebook (Databricks)
             →  ADLS gold/cc_fraud_trans/
                 fraud_by_merchant/      (Parquet)
@@ -18,8 +25,7 @@ Azure equivalent:
                 hourly_fraud_pattern/   (Parquet)
                 high_risk_summary/      (Parquet)
 
-Synapse gold views (created by IAC/modules/synapse/main.tf) query
-these paths via OPENROWSET.
+Synapse gold views query these paths via OPENROWSET.
 
 Scheduled via Databricks Job at 03:30 UTC daily (after raw→curated at 02:30).
 """
@@ -44,16 +50,21 @@ spark.conf.set(
     adls_key
 )
 
+# Enable Delta Lake
+spark.conf.set("spark.databricks.delta.preview.enabled", "true")
+spark.conf.set("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
+spark.conf.set("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
+
 CURATED_PATH = f"abfss://{CUR_CONTAINER}@{ADLS_ACCOUNT}.dfs.core.windows.net/{TABLE}/"
 GOLD_PATH    = f"abfss://{GLD_CONTAINER}@{ADLS_ACCOUNT}.dfs.core.windows.net/{TABLE}/"
 
-print(f"[INFO] Reading curated: {CURATED_PATH}")
-print(f"[INFO] Writing gold:    {GOLD_PATH}")
+print(f"[INFO] Reading curated Delta: {CURATED_PATH}")
+print(f"[INFO] Writing gold:          {GOLD_PATH}")
 
 
-# ─── Read curated layer ───────────────────────────────────────
-df = spark.read.parquet(CURATED_PATH)
-print(f"[INFO] Curated row count: {df.count()}")
+# ─── Read full curated Delta table ───────────────────────────
+df = spark.read.format("delta").load(CURATED_PATH)
+print(f"[INFO] Curated row count (full table): {df.count()}")
 
 
 # ===========================================================

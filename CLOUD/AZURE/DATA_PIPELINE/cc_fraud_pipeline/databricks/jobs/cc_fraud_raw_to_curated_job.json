@@ -8,7 +8,8 @@
         "adls_account_name": "itcbdneadls",
         "raw_container": "raw",
         "curated_container": "curated",
-        "table_name": "cc_fraud_trans"
+        "table_name": "cc_fraud_trans",
+        "ingestion_date": "{{job.start_time.iso_date}}"
       }
     },
     "new_cluster": {
@@ -18,7 +19,9 @@
       "spark_conf": {
         "spark.databricks.cluster.profile": "singleNode",
         "spark.master": "local[*]",
-        "spark.databricks.delta.preview.enabled": "true"
+        "spark.databricks.delta.preview.enabled": "true",
+        "spark.sql.extensions": "io.delta.sql.DeltaSparkSessionExtension",
+        "spark.sql.catalog.spark_catalog": "org.apache.spark.sql.delta.catalog.DeltaCatalog"
       },
       "custom_tags": { "ResourceClass": "SingleNode" },
       "azure_attributes": { "availability": "ON_DEMAND_AZURE", "first_on_demand": 1 }

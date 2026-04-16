@@ -1,17 +1,28 @@
 """
 raw_to_curated.py
 =================
-Databricks PySpark notebook — Raw → Curated transformation for cc_fraud_trans.
+Databricks PySpark notebook — Incremental Raw → Curated transformation
+for cc_fraud_trans using Delta Lake MERGE (upsert).
 
-Mirrors the ON_PREM curated-layer transformation logic (transformations.py)
-with identical business rules, adapted for ADLS Gen2 paths instead of Hive tables.
+INCREMENTAL LOAD STRATEGY
+--------------------------
+ADF writes each day's new records to:
+    raw/cc_fraud_trans/ingestion_date=YYYY-MM-DD/cc_fraud_trans.csv
+
+This notebook:
+  1. Reads ONLY today's ingestion_date partition from raw
+  2. Applies all transformations (identical business rules to ON_PREM)
+  3. MERGEs into the Delta curated table on transaction_id
+       - Existing rows are updated (late corrections)
+       - New rows are inserted
+  4. Advances the watermark to max(timestamp) of the batch processed
 
 ON_PREM equivalent flow:
-    Hive raw table  →  transformations.py  →  Hive curated table
+    Hive raw table  →  transformations.py  →  Hive curated table (MERGE)
 Azure equivalent flow:
-    ADLS raw/cc_fraud_trans/cc_fraud_trans.csv
-        →  this notebook (Databricks)
-            →  ADLS curated/cc_fraud_trans/  (Parquet, partitioned by fraud_label)
+    ADLS raw/cc_fraud_trans/ingestion_date=YYYY-MM-DD/cc_fraud_trans.csv
+        →  this notebook (Databricks, Delta MERGE)
+            →  ADLS curated/cc_fraud_trans/  (Delta table, partitioned by fraud_label)
 
 Transformations applied (identical to ON_PREM):
     1.  remove_duplicates      — deduplicate on transaction_id
@@ -28,19 +39,24 @@ Transformations applied (identical to ON_PREM):
 Scheduled via Databricks Job at 02:30 UTC daily (after ADF ingest at 01:00 UTC).
 """
 
+import json
+from datetime import datetime, timezone
 from pyspark.sql import functions as F
 from pyspark.sql.types import IntegerType
+from delta.tables import DeltaTable
 
 # ─── Widget Parameters (set by Databricks Job) ───────────────
 dbutils.widgets.text("adls_account_name", "")
 dbutils.widgets.text("raw_container",     "raw")
 dbutils.widgets.text("curated_container", "curated")
 dbutils.widgets.text("table_name",        "cc_fraud_trans")
+dbutils.widgets.text("ingestion_date",    datetime.now(timezone.utc).strftime("%Y-%m-%d"))
 
-ADLS_ACCOUNT  = dbutils.widgets.get("adls_account_name")
-RAW_CONTAINER = dbutils.widgets.get("raw_container")
-CUR_CONTAINER = dbutils.widgets.get("curated_container")
-TABLE         = dbutils.widgets.get("table_name")
+ADLS_ACCOUNT   = dbutils.widgets.get("adls_account_name")
+RAW_CONTAINER  = dbutils.widgets.get("raw_container")
+CUR_CONTAINER  = dbutils.widgets.get("curated_container")
+TABLE          = dbutils.widgets.get("table_name")
+INGESTION_DATE = dbutils.widgets.get("ingestion_date")
 
 # ─── ADLS Access ─────────────────────────────────────────────
 adls_key = dbutils.secrets.get(scope="adls-scope", key="adls-account-key")
@@ -49,23 +65,39 @@ spark.conf.set(
     adls_key
 )
 
-RAW_PATH     = f"abfss://{RAW_CONTAINER}@{ADLS_ACCOUNT}.dfs.core.windows.net/{TABLE}/"
-CURATED_PATH = f"abfss://{CUR_CONTAINER}@{ADLS_ACCOUNT}.dfs.core.windows.net/{TABLE}/"
+# Enable Delta Lake
+spark.conf.set("spark.databricks.delta.preview.enabled", "true")
+spark.conf.set("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension")
+spark.conf.set("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog")
 
-print(f"[INFO] Reading raw:    {RAW_PATH}")
-print(f"[INFO] Writing curated: {CURATED_PATH}")
+# ─── Paths ───────────────────────────────────────────────────
+BASE              = f"abfss://{{}}@{ADLS_ACCOUNT}.dfs.core.windows.net"
+RAW_PARTITION     = f"{BASE.format(RAW_CONTAINER)}/{TABLE}/ingestion_date={INGESTION_DATE}/"
+CURATED_PATH      = f"{BASE.format(CUR_CONTAINER)}/{TABLE}/"
+WATERMARK_PATH    = f"{BASE.format(RAW_CONTAINER)}/watermark/{TABLE}.json"
+
+print(f"[INFO] Ingestion date  : {INGESTION_DATE}")
+print(f"[INFO] Reading raw     : {RAW_PARTITION}")
+print(f"[INFO] Delta curated   : {CURATED_PATH}")
+print(f"[INFO] Watermark file  : {WATERMARK_PATH}")
 
 
 # ===========================================================
-# Step 1 – Read raw CSV (written by ADF copy activity)
+# Step 1 – Read today's raw partition (incremental slice only)
 # ===========================================================
 df = (
     spark.read
     .option("header", "true")
     .option("inferSchema", "true")
-    .csv(RAW_PATH)
+    .csv(RAW_PARTITION)
 )
-print(f"[INFO] Raw row count: {df.count()}")
+raw_count = df.count()
+print(f"[INFO] Raw rows in partition {INGESTION_DATE}: {raw_count}")
+
+if raw_count == 0:
+    print("[WARN] No new rows in this partition — nothing to process. Exiting.")
+    dbutils.notebook.exit("NO_DATA")
+
 df.printSchema()
 
 
@@ -93,12 +125,11 @@ print(f"[INFO] After null handling: {df.count()}")
 
 # ===========================================================
 # Step 4 – extract_time_features
-#   txn_hour, txn_day_of_week (1=Mon…7=Sun), txn_month, is_weekend
 # ===========================================================
 df = (
     df
     .withColumn("txn_hour",        F.hour(F.col("timestamp")))
-    .withColumn("txn_day_of_week", F.dayofweek(F.col("timestamp")))  # 1=Sun,7=Sat in Spark
+    .withColumn("txn_day_of_week", F.dayofweek(F.col("timestamp")))
     .withColumn("txn_month",       F.month(F.col("timestamp")))
     .withColumn("is_weekend",
         F.when(F.dayofweek(F.col("timestamp")).isin(1, 7), 1).otherwise(0)
@@ -108,14 +139,12 @@ df = (
 
 # ===========================================================
 # Step 5 – normalize_amount
-#   amt_log = log1p(transaction_amount)  (always >= 0 for non-negative amounts)
 # ===========================================================
 df = df.withColumn("amt_log", F.log1p(F.col("transaction_amount")))
 
 
 # ===========================================================
 # Step 6 – bucket_amount
-#   <10 → low, <100 → medium, <500 → high, >=500 → very_high
 # ===========================================================
 df = df.withColumn(
     "amt_bucket",
@@ -128,22 +157,18 @@ df = df.withColumn(
 
 # ===========================================================
 # Step 7 – calculate_age
-#   card_age column stores age in months; pass through as cardholder_age
 # ===========================================================
 df = df.withColumn("cardholder_age", F.col("card_age").cast(IntegerType()))
 
 
 # ===========================================================
 # Step 8 – calculate_distance
-#   transaction_distance is already in km; rename to distance_km
 # ===========================================================
 df = df.withColumn("distance_km", F.col("transaction_distance"))
 
 
 # ===========================================================
 # Step 9 – encode_gender
-#   biometric authentication methods → 1, all others (incl. null) → 0
-#   Column named gender_encoded to match ON_PREM schema
 # ===========================================================
 BIOMETRIC = ["biometric", "face_recognition", "fingerprint"]
 df = df.withColumn(
@@ -154,22 +179,17 @@ df = df.withColumn(
 
 # ===========================================================
 # Step 10 – transaction_velocity
-#   txn_velocity_day = number of transactions per user_id per calendar date
 # ===========================================================
 df = df.withColumn("_txn_date", F.to_date(F.col("timestamp")))
-
 velocity = (
     df.groupBy("user_id", "_txn_date")
       .agg(F.count("*").alias("txn_velocity_day"))
 )
-
-df = df.join(velocity, on=["user_id", "_txn_date"], how="left") \
-       .drop("_txn_date")
+df = df.join(velocity, on=["user_id", "_txn_date"], how="left").drop("_txn_date")
 
 
 # ===========================================================
 # Step 11 – flag_high_risk
-#   high_risk = 1 if amount > 500 AND txn_hour in [0,5] AND txn_velocity_day >= 3
 # ===========================================================
 df = df.withColumn(
     "high_risk",
@@ -183,16 +203,54 @@ df = df.withColumn(
 
 
 # ===========================================================
-# Step 12 – Write curated Parquet to ADLS, partitioned by fraud_label
+# Step 12 – MERGE into Delta curated table (upsert on transaction_id)
+#
+# ON_PREM equivalent: INSERT ... ON CONFLICT (transaction_id) DO UPDATE SET ...
+# Azure equivalent  : DeltaTable.merge() — update existing, insert new
 # ===========================================================
-print(f"[INFO] Curated row count: {df.count()}")
+curated_count = df.count()
+print(f"[INFO] Curated row count (this batch): {curated_count}")
 df.show(5, truncate=False)
 
-df.write \
-  .format("parquet") \
-  .mode("overwrite") \
-  .partitionBy("fraud_label") \
-  .save(CURATED_PATH)
+if DeltaTable.isDeltaTable(spark, CURATED_PATH):
+    print("[INFO] Delta table exists — performing MERGE (upsert)")
+    delta_table = DeltaTable.forPath(spark, CURATED_PATH)
+    (
+        delta_table.alias("target")
+        .merge(
+            df.alias("source"),
+            "target.transaction_id = source.transaction_id"
+        )
+        .whenMatchedUpdateAll()
+        .whenNotMatchedInsertAll()
+        .execute()
+    )
+    print("[INFO] MERGE complete")
+else:
+    print("[INFO] Delta table does not exist — performing initial write")
+    (
+        df.write
+          .format("delta")
+          .mode("overwrite")
+          .partitionBy("fraud_label")
+          .save(CURATED_PATH)
+    )
+    print("[INFO] Initial Delta write complete")
 
-print(f"[INFO] Curated data written to: {CURATED_PATH}")
-print("[INFO] raw_to_curated complete.")
+
+# ===========================================================
+# Step 13 – Advance watermark to max(timestamp) of this batch
+#
+# ADF reads this watermark on the next run and filters PostgreSQL
+# with: WHERE timestamp > last_watermark
+# ===========================================================
+max_ts = df.agg(F.max("timestamp")).collect()[0][0]
+if max_ts is not None:
+    new_watermark = json.dumps({"last_watermark": str(max_ts)})
+    dbutils.fs.put(WATERMARK_PATH, new_watermark, overwrite=True)
+    print(f"[INFO] Watermark advanced to: {max_ts}")
+else:
+    print("[WARN] Could not determine max timestamp — watermark NOT updated")
+
+print(f"[INFO] Curated Delta table at: {CURATED_PATH}")
+print("[INFO] raw_to_curated (incremental) complete.")

@@ -1,19 +1,60 @@
 {
-  "description": "Copies cc_fraud_trans from PostgreSQL to ADLS Gen2 raw layer",
+  "description": "Incremental load: copies new cc_fraud_trans records from PostgreSQL to ADLS raw layer using watermark-based change tracking. Watermark is stored in raw/watermark/cc_fraud_trans.json and updated by Databricks raw_to_curated after processing.",
   "activities": [
     {
-      "name": "Copy_CC_Fraud_Trans",
+      "name": "GetWatermark",
+      "description": "Read last processed timestamp from ADLS watermark file",
+      "type": "Lookup",
+      "typeProperties": {
+        "source": {
+          "type": "JsonSource",
+          "storeSettings": {
+            "type": "AzureBlobStorageReadSettings",
+            "recursive": false
+          },
+          "formatSettings": {
+            "type": "JsonReadSettings"
+          }
+        },
+        "dataset": {
+          "referenceName": "DS_CC_Fraud_Watermark",
+          "type": "DatasetReference"
+        },
+        "firstRowOnly": true
+      }
+    },
+    {
+      "name": "CopyIncrementalData",
+      "description": "Copy only rows with timestamp > last watermark, partitioned by ingestion date",
       "type": "Copy",
+      "dependsOn": [
+        {
+          "activity": "GetWatermark",
+          "dependencyConditions": ["Succeeded"]
+        }
+      ],
       "inputs": [
         { "referenceName": "DS_CC_Fraud_Trans_PG", "type": "DatasetReference" }
       ],
       "outputs": [
-        { "referenceName": "DS_CC_Fraud_Trans_ADLS_Raw", "type": "DatasetReference" }
+        {
+          "referenceName": "DS_CC_Fraud_Trans_ADLS_Raw",
+          "type": "DatasetReference",
+          "parameters": {
+            "ingestion_date": {
+              "value": "@formatDateTime(utcNow(), 'yyyy-MM-dd')",
+              "type": "Expression"
+            }
+          }
+        }
       ],
       "typeProperties": {
         "source": {
           "type": "PostgreSqlV2Source",
-          "query": "SELECT * FROM cc_fraud_trans",
+          "query": {
+            "value": "@concat('SELECT * FROM cc_fraud_trans WHERE timestamp > ''', activity('GetWatermark').output.firstRow.last_watermark, '''')",
+            "type": "Expression"
+          },
           "queryTimeout": "02:00:00"
         },
         "sink": {

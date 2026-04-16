@@ -1,0 +1,15 @@
+{
+  "type": "Json",
+  "linkedServiceName": {
+    "referenceName": "LS_CC_Fraud_ADLS",
+    "type": "LinkedServiceReference"
+  },
+  "typeProperties": {
+    "location": {
+      "type": "AzureBlobStorageLocation",
+      "container": "raw",
+      "folderPath": "watermark",
+      "fileName": "cc_fraud_trans.json"
+    }
+  }
+}

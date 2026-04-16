@@ -4,11 +4,19 @@
     "referenceName": "LS_CC_Fraud_ADLS",
     "type": "LinkedServiceReference"
   },
+  "parameters": {
+    "ingestion_date": {
+      "type": "String"
+    }
+  },
   "typeProperties": {
     "location": {
       "type": "AzureBlobStorageLocation",
       "container": "raw",
-      "folderPath": "cc_fraud_trans",
+      "folderPath": {
+        "value": "@concat('cc_fraud_trans/ingestion_date=', dataset().ingestion_date)",
+        "type": "Expression"
+      },
       "fileName": "cc_fraud_trans.csv"
     },
     "columnDelimiter": ",",
