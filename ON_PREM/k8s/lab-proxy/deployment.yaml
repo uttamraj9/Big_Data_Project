@@ -1,0 +1,45 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lab-proxy
+  namespace: itc-training
+  labels:
+    app: lab-proxy
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: lab-proxy
+  template:
+    metadata:
+      labels:
+        app: lab-proxy
+    spec:
+      containers:
+        - name: lab-proxy
+          image: localhost:5000/nginx:1.25-alpine
+          ports:
+            - containerPort: 8088
+            - containerPort: 9870
+            - containerPort: 18088
+            - containerPort: 7180
+            - containerPort: 8889
+          volumeMounts:
+            - name: nginx-conf
+              mountPath: /etc/nginx/conf.d
+          resources:
+            requests:
+              cpu: 50m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+          livenessProbe:
+            tcpSocket:
+              port: 8088
+            initialDelaySeconds: 10
+            periodSeconds: 20
+      volumes:
+        - name: nginx-conf
+          configMap:
+            name: lab-proxy-nginx-conf

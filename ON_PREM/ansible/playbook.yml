@@ -1,0 +1,89 @@
+---
+- name: Deploy ITC Training Portal — Apache proxy + K8s
+  hosts: k8s_master
+  become: yes
+  vars:
+    portal_nodeport: 30300
+    portal_port: 3000
+    registry_port: 5000
+    cloudera_host: "13.41.167.97"
+    yarn_host: "172.31.6.42"
+    hdfs_host: "172.31.3.251"
+
+  tasks:
+    # ─── Local Docker Registry ─────────────────────────────────
+    - name: Ensure local Docker registry is running
+      community.docker.docker_container:
+        name: local-registry
+        image: registry:2
+        state: started
+        restart_policy: always
+        ports:
+          - "5000:5000"
+        volumes:
+          - /var/lib/registry:/var/lib/registry
+
+    # ─── Apache — enable proxy modules ────────────────────────
+    - name: Enable required Apache modules
+      lineinfile:
+        path: /etc/httpd/conf.modules.d/00-proxy.conf
+        line: "{{ item }}"
+        create: yes
+      loop:
+        - "LoadModule proxy_module modules/mod_proxy.so"
+        - "LoadModule proxy_http_module modules/mod_proxy_http.so"
+        - "LoadModule proxy_wstunnel_module modules/mod_proxy_wstunnel.so"
+
+    - name: Deploy Apache vhost — Training Portal on port 3000
+      copy:
+        dest: /etc/httpd/conf.d/training-portal.conf
+        content: |
+          Listen 3000
+          <VirtualHost *:3000>
+              ProxyPreserveHost On
+              ProxyPass        / http://127.0.0.1:{{ portal_nodeport }}/
+              ProxyPassReverse / http://127.0.0.1:{{ portal_nodeport }}/
+              ErrorLog  /var/log/httpd/training-portal-error.log
+              CustomLog /var/log/httpd/training-portal-access.log combined
+          </VirtualHost>
+
+    - name: Reload Apache
+      service:
+        name: httpd
+        state: reloaded
+
+    # ─── K8s — apply all manifests ────────────────────────────
+    - name: Apply namespace
+      command: kubectl apply -f /opt/itc/k8s/namespace.yaml
+      become_user: ec2-user
+
+    - name: Apply training portal manifests
+      command: kubectl apply -f /opt/itc/k8s/training-portal/
+      become_user: ec2-user
+
+    - name: Apply lab proxy manifests
+      command: kubectl apply -f /opt/itc/k8s/lab-proxy/
+      become_user: ec2-user
+
+    # ─── Wait for pods ─────────────────────────────────────────
+    - name: Wait for training portal pods
+      command: >
+        kubectl rollout status deployment/training-portal
+        -n itc-training --timeout=120s
+      become_user: ec2-user
+
+    - name: Wait for lab-proxy pod
+      command: >
+        kubectl rollout status deployment/lab-proxy
+        -n itc-training --timeout=120s
+      become_user: ec2-user
+
+    # ─── Verify ───────────────────────────────────────────────
+    - name: Show deployed pods
+      command: kubectl get pods -n itc-training -o wide
+      become_user: ec2-user
+      register: pods_out
+
+    - name: Print pod status
+      debug:
+        msg: "{{ pods_out.stdout_lines }}"
