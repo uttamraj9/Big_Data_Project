@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: wetty
+  namespace: itc-training
+  labels:
+    app: wetty
+spec:
+  type: NodePort
+  selector:
+    app: wetty
+  ports:
+    - name: wetty
+      port: 3000
+      targetPort: 3000
+      nodePort: 30922

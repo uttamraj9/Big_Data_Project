@@ -51,12 +51,27 @@ $SSH "
 "
 ok "Image built and pushed to $REGISTRY/$IMAGE:$TAG"
 
+# ─── Step 2b: Pull wetty image and push to local registry ──────
+log "Step 2b/6 — Staging wetty image in local registry"
+$SSH "
+  if ! docker images | grep -q 'localhost:5000/wetty'; then
+    docker pull wettyoss/wetty:latest
+    docker tag wettyoss/wetty:latest localhost:5000/wetty:latest
+    docker push localhost:5000/wetty:latest
+    echo 'wetty image pushed'
+  else
+    echo 'wetty image already in registry'
+  fi
+"
+ok "wetty image at $REGISTRY/wetty:latest"
+
 # ─── Step 3: Copy K8s manifests ────────────────────────────────
 log "Step 3/6 — Uploading K8s manifests"
-$SSH "mkdir -p /opt/itc/k8s/training-portal /opt/itc/k8s/lab-proxy"
+$SSH "mkdir -p /opt/itc/k8s/training-portal /opt/itc/k8s/lab-proxy /opt/itc/k8s/wetty"
 $SCP ON_PREM/k8s/namespace.yaml        "ec2-user@$SERVER:/opt/itc/k8s/"
 $SCP ON_PREM/k8s/training-portal/*.yaml "ec2-user@$SERVER:/opt/itc/k8s/training-portal/"
 $SCP ON_PREM/k8s/lab-proxy/*.yaml      "ec2-user@$SERVER:/opt/itc/k8s/lab-proxy/"
+$SCP ON_PREM/k8s/wetty/*.yaml          "ec2-user@$SERVER:/opt/itc/k8s/wetty/"
 ok "Manifests uploaded"
 
 # ─── Step 4: Apply K8s manifests ───────────────────────────────
@@ -65,12 +80,16 @@ $SSH "
   kubectl apply -f /opt/itc/k8s/namespace.yaml
   kubectl apply -f /opt/itc/k8s/training-portal/
   kubectl apply -f /opt/itc/k8s/lab-proxy/
+  kubectl apply -f /opt/itc/k8s/wetty/
 
   echo '--- Waiting for training-portal rollout ---'
   kubectl rollout status deployment/training-portal -n itc-training --timeout=120s
 
   echo '--- Waiting for lab-proxy rollout ---'
   kubectl rollout status deployment/lab-proxy -n itc-training --timeout=120s
+
+  echo '--- Waiting for wetty rollout ---'
+  kubectl rollout status deployment/wetty -n itc-training --timeout=120s
 "
 ok "K8s pods running"
 

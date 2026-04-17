@@ -1,0 +1,43 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wetty
+  namespace: itc-training
+  labels:
+    app: wetty
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: wetty
+  template:
+    metadata:
+      labels:
+        app: wetty
+    spec:
+      containers:
+        - name: wetty
+          image: localhost:5000/wetty:latest
+          ports:
+            - containerPort: 3000
+          args:
+            - "--ssh-host=13.41.167.97"
+            - "--ssh-port=22"
+            - "--ssh-user=consultant"
+            - "--ssh-pass=WelcomeItc@2026"
+            - "--base=/"
+            - "--port=3000"
+            - "--allow-iframe"
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            initialDelaySeconds: 15
+            periodSeconds: 20
