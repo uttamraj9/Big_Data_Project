@@ -30,3 +30,7 @@ spec:
       port: 8889
       targetPort: 8889
       nodePort: 30889
+    - name: jupyter
+      port: 8890
+      targetPort: 8890
+      nodePort: 30890
