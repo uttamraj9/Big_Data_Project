@@ -34,3 +34,7 @@ spec:
       port: 8890
       targetPort: 8890
       nodePort: 30890
+    - name: python-exec
+      port: 8891
+      targetPort: 8891
+      nodePort: 30891
