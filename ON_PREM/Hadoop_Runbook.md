@@ -457,7 +457,259 @@ hdfs dfs -cat /tmp/itc_runbook/mr_streaming_out/part-00000
 
 ---
 
-# Day 3 — YARN Resource Management
+# Day 3 — HDFS CLI (Advanced Operations)
+
+## What You Will Cover
+
+Day 1 introduced HDFS basics: `put`, `get`, `cat`, `ls`, `mkdir`.  
+Today you go deeper — permissions, health checks, block inspection, quotas, snapshots, and distributed copy. These are the tools you use when debugging a production cluster or managing multi-team access.
+
+## File Permissions and Ownership
+
+HDFS uses POSIX-style permissions. The running user is `ec2-user`; the superuser is `hdfs`.
+
+```bash
+# See current permissions on the training directory
+hdfs dfs -ls /tmp/itc_runbook/
+```
+```
+Found 4 items
+-rw-r--r--   3 ec2-user supergroup   284 /tmp/itc_runbook/employees.csv
+drwxr-xr-x   - ec2-user supergroup     0 /tmp/itc_runbook/mr_input
+drwxr-xr-x   - ec2-user supergroup     0 /tmp/itc_runbook/mr_output
+drwxr-xr-x   - ec2-user supergroup     0 /tmp/itc_runbook/mr_streaming_out
+```
+
+```bash
+# Make a file world-readable (so Hive/Spark can read it)
+hdfs dfs -chmod 777 /tmp/itc_runbook/employees.csv
+
+# Change ownership to hive (required before LOAD DATA INPATH in Hive)
+sudo -u hdfs hdfs dfs -chown hive:hive /tmp/itc_runbook/employees.csv
+
+# Change ownership back
+sudo -u hdfs hdfs dfs -chown ec2-user:supergroup /tmp/itc_runbook/employees.csv
+
+# Recursive chmod on a whole directory
+hdfs dfs -chmod -R 775 /tmp/itc_runbook/
+```
+
+## HDFS File System Check (fsck)
+
+`hdfs fsck` reports the health of files and their blocks.
+
+```bash
+# Overall health of the itc_runbook directory
+hdfs fsck /tmp/itc_runbook -files -blocks
+```
+```
+Connecting to namenode via http://ip-172-31-3-251.eu-west-2.compute.internal:9870/fsck?...
+/tmp/itc_runbook/employees.csv  284 bytes, replicated: replication=3, 1 block(s): OK
+/tmp/itc_runbook/mr_output/part-r-00000  348 bytes, replicated: replication=3, 1 block(s): OK
+Status: HEALTHY
+Total size:   632 B
+Total dirs:   4
+Total files:  4
+Total blocks: 4 (avg. block size 158 B)
+Minimally replicated blocks: 4 (100.0%)
+```
+
+```bash
+# See which DataNode holds each replica of a file
+hdfs fsck /tmp/itc_runbook/employees.csv -files -blocks -locations
+```
+```
+/tmp/itc_runbook/employees.csv:
+  Block blk_1073743375 len=284
+    Replica 0: ip-172-31-12-74 (HEALTHY)
+    Replica 1: ip-172-31-6-42  (HEALTHY)
+    Replica 2: ip-172-31-3-85  (HEALTHY)
+```
+
+> Run `fsck` first whenever a job fails with `PATH_NOT_FOUND` or `under-replicated blocks`.
+
+## Disk Usage and Cluster Report
+
+```bash
+# Human-readable sizes — first column actual bytes, second = actual × replication
+hdfs dfs -du -h /tmp/itc_runbook/
+```
+```
+284      852    /tmp/itc_runbook/employees.csv
+0        0      /tmp/itc_runbook/mr_input
+348      1044   /tmp/itc_runbook/mr_output/part-r-00000
+```
+
+```bash
+# Full cluster report — capacity, usage, per-node stats
+hdfs dfsadmin -report
+```
+```
+Configured Capacity: 611,376,185,344 (569.38 GB)
+DFS Used:            13,379,112,960  (12.46 GB)
+DFS Remaining:       505,754,050,560 (471.02 GB)
+Under Replication Blocks: 0
+Missing Blocks:            0
+
+Live datanodes (3):
+  ip-172-31-12-74  Configured: 203.79 GB  Used: 4.15 GB
+  ip-172-31-6-42   Configured: 203.79 GB  Used: 4.16 GB
+  ip-172-31-3-85   Configured: 161.80 GB  Used: 4.15 GB
+```
+
+## Space and Name Quotas
+
+Quotas prevent one team from filling the entire cluster.
+
+```bash
+# Set a 100 MB space quota on your training directory
+hdfs dfsadmin -setSpaceQuota 100m /tmp/itc_runbook
+
+# Check current quota usage (-q = quota details)
+hdfs dfs -count -q /tmp/itc_runbook
+```
+```
+# ns_quota  ns_used  space_quota   space_used  dir
+none        7        104857600     3640        /tmp/itc_runbook
+```
+> Columns: namespace_quota | ns_used | space_quota_bytes | space_used_bytes | path
+
+```bash
+# Remove the quota when done
+hdfs dfsadmin -clrSpaceQuota /tmp/itc_runbook
+```
+
+## Snapshots (Point-in-Time Backup)
+
+Snapshots are instant (metadata only) — they do not copy data blocks.
+
+```bash
+# Enable snapshot capability on a directory (one-time setup, needs hdfs user)
+sudo -u hdfs hdfs dfsadmin -allowSnapshot /tmp/itc_runbook
+
+# Take a named snapshot
+hdfs dfs -createSnapshot /tmp/itc_runbook before_delete
+
+# List snapshots
+hdfs dfs -ls /tmp/itc_runbook/.snapshot/
+```
+```
+Found 1 items
+drwxr-xr-x  - ec2-user supergroup  0  /tmp/itc_runbook/.snapshot/before_delete
+```
+
+```bash
+# Simulate an accidental delete
+hdfs dfs -rm /tmp/itc_runbook/employees.csv
+
+# Restore from snapshot
+hdfs dfs -cp /tmp/itc_runbook/.snapshot/before_delete/employees.csv /tmp/itc_runbook/
+
+# Verify restored
+hdfs dfs -ls /tmp/itc_runbook/employees.csv
+```
+```
+-rw-r--r--   3 ec2-user supergroup  284  /tmp/itc_runbook/employees.csv
+```
+
+```bash
+# Delete snapshot when no longer needed
+hdfs dfs -deleteSnapshot /tmp/itc_runbook before_delete
+```
+
+## Distributed Copy (distcp)
+
+`distcp` copies data in parallel using MapReduce — the only correct way to copy large datasets between directories or clusters.
+
+```bash
+# Copy your entire training directory to a backup location
+hadoop distcp \
+  /tmp/itc_runbook \
+  /tmp/itc_runbook_backup
+
+# Verify
+hdfs dfs -ls /tmp/itc_runbook_backup/
+```
+```
+Found 4 items
+-rw-r--r--   3 ec2-user supergroup   284  /tmp/itc_runbook_backup/employees.csv
+drwxr-xr-x   - ec2-user supergroup     0  /tmp/itc_runbook_backup/mr_input
+drwxr-xr-x   - ec2-user supergroup     0  /tmp/itc_runbook_backup/mr_output
+drwxr-xr-x   - ec2-user supergroup     0  /tmp/itc_runbook_backup/mr_streaming_out
+```
+
+```bash
+# Update mode: only copy files that changed or were added (incremental sync)
+hadoop distcp -update \
+  /tmp/itc_runbook \
+  /tmp/itc_runbook_backup
+
+# Clean up
+hdfs dfs -rm -r /tmp/itc_runbook_backup
+```
+
+## Trash Management
+
+HDFS has a trash (recycle bin). Deleted files go to `/user/<username>/.Trash` and are permanently removed after a configurable interval (default: 6 hours on this cluster).
+
+```bash
+# Delete with trash (default — files recoverable within trash window)
+hdfs dfs -rm /tmp/itc_runbook/mr_output/part-r-00000
+
+# Delete immediately, bypassing trash
+hdfs dfs -rm -skipTrash /tmp/itc_runbook/mr_streaming_out/part-00000
+
+# Manually empty your trash now
+hdfs dfs -expunge
+```
+
+## Safe Mode
+
+Safe mode is read-only. The NameNode enters safe mode on startup until enough DataNodes have reported their blocks.
+
+```bash
+# Check safe mode status
+hdfs dfsadmin -safemode get
+```
+```
+Safe mode is OFF
+```
+
+```bash
+# Manually enter (only during planned maintenance)
+sudo -u hdfs hdfs dfsadmin -safemode enter
+
+# Leave safe mode
+sudo -u hdfs hdfs dfsadmin -safemode leave
+```
+
+## Useful CLI Quick Reference
+
+| Command | Purpose |
+|---|---|
+| `hdfs dfs -ls -R /path` | Recursive listing |
+| `hdfs dfs -stat "%b %r %n" /path` | Print block-size, replication, name |
+| `hdfs dfs -setrep -w 2 /path/file` | Change replication factor (wait until done) |
+| `hdfs dfs -test -e /path` | Exit 0 if path exists |
+| `hdfs dfs -touchz /path/file` | Create an empty file |
+| `hdfs dfs -tail /path/file` | Last 1 KB of a file |
+| `hdfs dfs -getmerge /hdfs/dir /local` | Merge all part-files into one local file |
+| `hdfs dfs -appendToFile /local /hdfs` | Append local content to HDFS file |
+| `hdfs dfsadmin -report` | Full cluster health report |
+| `hdfs fsck /path -files -blocks` | File and block health |
+
+## Day 3 Exercise
+1. Run `hdfs dfsadmin -report` — note which DataNode has the most space used
+2. Run `hdfs fsck /tmp/itc_runbook -files -blocks` — confirm all blocks are HEALTHY
+3. Enable snapshots on `/tmp/<yourname>`, create a snapshot called `day3_checkpoint`
+4. Delete `employees.csv` from your directory, then restore it from the snapshot
+5. Use `distcp` to copy `/tmp/<yourname>` to `/tmp/<yourname>_backup`
+6. Confirm the copy: `hdfs dfs -du -h /tmp/<yourname>_backup`
+7. Delete the snapshot and backup when done
+
+---
+
+# Day 4 — YARN Resource Management
 
 ## What is YARN?
 
@@ -529,141 +781,11 @@ spark-submit \
 > **client mode** — driver runs on your SSH session (good for debugging)  
 > **cluster mode** — driver runs inside YARN (use for production / Jenkins jobs)
 
-## Day 3 Exercise
+## Day 4 Exercise
 1. Run `yarn node -list` — note which node has the most containers
 2. Submit the MapReduce WordCount again
-3. While it runs, open http://13.41.167.97:8088 and watch it in the UI
+3. While it runs, open http://13.41.167.97:8088 and watch it in the YARN UI
 4. After it finishes, use `yarn logs -applicationId <id>` to see the output
-
----
-
-# Day 4 — Sqoop (Batch Ingestion from Databases)
-
-## What is Sqoop?
-
-Sqoop transfers data **between relational databases and Hadoop**. In the class project we use it to pull CC fraud transactions from PostgreSQL into HDFS as the raw layer.
-
-```
-PostgreSQL (testdb.cc_fraud_trans)
-          │
-     sqoop import
-          │
-          ▼
-HDFS: /class_project/input/raw_data_sqoop/
-          │
-     Hive external table
-          │
-          ▼
-Hive: bd_class_project.cc_fraud_trans
-```
-
-## Sqoop Version
-```bash
-sqoop version
-```
-```
-Sqoop 1.4.7.7.1.7.0-551
-```
-
-## List Tables in PostgreSQL
-```bash
-sqoop list-tables \
-  --connect 'jdbc:postgresql://13.42.152.118:5432/testdb' \
-  --username admin \
-  --password admin123
-```
-```
-cc_fraud_trans
-cc_fraud_streaming_data
-```
-
-## Full Import
-```bash
-sqoop import \
-  --connect 'jdbc:postgresql://13.42.152.118:5432/testdb' \
-  --username admin \
-  --password admin123 \
-  --table cc_fraud_trans \
-  --target-dir /tmp/itc_runbook/sqoop_import \
-  --num-mappers 4 \
-  --fields-terminated-by ',' \
-  --lines-terminated-by '\n' \
-  --delete-target-dir
-```
-```
-INFO mapreduce.ImportJobBase: Transferred 4.22 MB in 38.2 seconds
-INFO mapreduce.ImportJobBase: Retrieved 37000 records.
-```
-
-```bash
-hdfs dfs -ls /tmp/itc_runbook/sqoop_import/
-```
-```
--rwxrwxrwx  3 ec2-user supergroup  4424726  part-m-00000
--rwxrwxrwx  3 ec2-user supergroup   856765  part-m-00001
--rwxrwxrwx  3 ec2-user supergroup        0  part-m-00002
--rwxrwxrwx  3 ec2-user supergroup        0  part-m-00003
-```
-
-```bash
-# Preview the imported data
-hdfs dfs -cat /tmp/itc_runbook/sqoop_import/part-m-00000 | head -3
-```
-```
-TXN_2862,USER_6086,72.54,ATM Withdrawal,2024-01-01 00:10:52,1846.73,...,0
-TXN_47895,USER_6749,78.68,Bank Transfer,2024-01-01 00:14:27,2140.26,...,0
-TXN_20029,USER_6468,63.97,POS,2024-01-01 00:17:08,3012.45,...,1
-```
-
-## Incremental Import (append new rows only)
-```bash
-sqoop import \
-  --connect 'jdbc:postgresql://13.42.152.118:5432/testdb' \
-  --username admin \
-  --password admin123 \
-  --table cc_fraud_trans \
-  --target-dir /tmp/itc_runbook/sqoop_import \
-  --num-mappers 2 \
-  --incremental append \
-  --check-column transaction_id \
-  --last-value TXN_37000
-```
-
-## Import Directly into Hive
-```bash
-sqoop import \
-  --connect 'jdbc:postgresql://13.42.152.118:5432/testdb' \
-  --username admin \
-  --password admin123 \
-  --table cc_fraud_trans \
-  --hive-import \
-  --hive-database bd_class_project \
-  --hive-table cc_fraud_trans \
-  --num-mappers 4 \
-  --delete-target-dir
-```
-
-## Save a Sqoop Job (reuse across runs)
-```bash
-sqoop job \
-  --create cc_fraud_daily_import \
-  -- import \
-  --connect 'jdbc:postgresql://13.42.152.118:5432/testdb' \
-  --username admin --password admin123 \
-  --table cc_fraud_trans \
-  --target-dir /tmp/itc_runbook/sqoop_import \
-  --num-mappers 4
-
-sqoop job --list
-sqoop job --exec cc_fraud_daily_import
-```
-
-## Day 4 Exercise
-1. Run `sqoop list-tables` — verify you see `cc_fraud_trans`
-2. Import the table to `/tmp/<yourname>/sqoop_out`
-3. Use `hdfs dfs -cat` to preview the first 5 rows
-4. Count the records: `hdfs dfs -cat /tmp/<yourname>/sqoop_out/part-m-00000 | wc -l`
-5. Expected: ~7,400 rows (37,000 / 4 mappers)
 
 ---
 
@@ -1402,169 +1524,282 @@ kafka-topics --delete \
 
 ---
 
-# Day 9 — HBase (NoSQL on Hadoop)
+# Day 9 — CI/CD for Big Data (Git, Jenkins & Docker)
 
-## What is HBase?
+## What You Will Cover
 
-HBase is a **distributed NoSQL database** built on top of HDFS. Unlike Hive's batch SQL, HBase gives **millisecond random read/write access** to individual rows — ideal for real-time lookups.
+Automation turns a working Spark script into a production data pipeline. Today you learn:
+- **Git** branching model for Big Data projects
+- **Jenkins** pipeline — automatic test → deploy on every git push
+- **Docker** — packaging Spark jobs so they run identically everywhere
+- Connecting it all: a push to GitHub triggers Jenkins which tests then submits a Spark job to YARN
+
+## Git Workflow for Big Data Projects
+
+### Repository Structure
 
 ```
-Data model: Table → Row Key → Column Family → Column → Value
-
-Example: cc_fraud_realtime
-  Row Key: TXN_12345
-    cf:user_id            = USER_6086
-    cf:transaction_amount = 72.54
-    cf:fraud_label        = 0
+my_spark_project/
+├── Jenkinsfile                   ← pipeline definition
+├── requirements.txt              ← Python deps
+├── src/
+│   ├── curated_layer/
+│   │   ├── full_load.py
+│   │   └── incremental_load.py
+│   └── ml/
+│       └── train_rf.py
+├── tests/
+│   ├── test_transforms.py
+│   └── test_schema.py
+└── docker/
+    └── Dockerfile
 ```
 
-## Live Tables on This Cluster
+### Core Git Commands
+
 ```bash
-echo 'list' | hbase shell
-```
-```
-TABLE
-cc_fraud_realtime    ← 33,000 rows from Kafka consumer
-created_users        ← 1,221 user records from Spark pipeline
-2 row(s)
-```
+# Clone the training repo
+git clone https://github.com/uttamraj9/Test_Spark_Jenkins
+cd Test_Spark_Jenkins
 
-## HBase Shell Basics
+# Create a feature branch (never push directly to main)
+git checkout -b feature/add-fraud-score-transform
+
+# Make changes, stage, commit
+git add src/curated_layer/full_load.py
+git commit -m "Add fraud_score_v2 transform column"
+
+# Push branch to trigger Jenkins
+git push origin feature/add-fraud-score-transform
+```
 
 ```bash
-hbase shell
+# Check what changed before committing
+git status
+git diff src/curated_layer/full_load.py
+git log --oneline -5
+
+# Pull latest before merging
+git checkout main
+git pull origin main
+git merge feature/add-fraud-score-transform
 ```
 
-```ruby
-# List all tables
-list
+### Branching Strategy
 
-# Create a table with column family 'cf'
-create 'itc_runbook_emp', 'cf'
-
-# Insert rows (put 'table', 'rowkey', 'cf:column', 'value')
-put 'itc_runbook_emp', '1', 'cf:name',   'Alice'
-put 'itc_runbook_emp', '1', 'cf:city',   'London'
-put 'itc_runbook_emp', '1', 'cf:salary', '45000'
-
-put 'itc_runbook_emp', '2', 'cf:name',   'Bob'
-put 'itc_runbook_emp', '2', 'cf:city',   'Manchester'
-put 'itc_runbook_emp', '2', 'cf:salary', '52000'
-
-# Read a specific row by key — instant lookup
-get 'itc_runbook_emp', '1'
 ```
-```
-COLUMN                CELL
-cf:city               timestamp=1774862595469, value=London
-cf:name               timestamp=1774862595464, value=Alice
-cf:salary             timestamp=1774862595469, value=45000
+main         ─────●──────────────────────●────────────────► (production)
+                   \                    /
+feature/...         ●──●──●──●──●──●──●  (your changes)
+                                │
+                             PR review
+                         Jenkins passes ✓
+                           merge to main
 ```
 
-```ruby
-# Scan entire table
-scan 'itc_runbook_emp'
+> **Rule:** Never push directly to `main`. All changes go via feature branch → PR → Jenkins green → merge.
+
+## Jenkins Pipeline
+
+Jenkins at http://13.42.152.118:8080 (user: `consultants`, password: `WelcomeItc@2022`) is already connected to GitHub via webhook.
+
+### The Full Pipeline Flow
+
 ```
-```
-ROW  COLUMN+CELL
-1    column=cf:city,   timestamp=..., value=London
-1    column=cf:name,   timestamp=..., value=Alice
-1    column=cf:salary, timestamp=..., value=45000
-2    column=cf:city,   timestamp=..., value=Manchester
-2    column=cf:name,   timestamp=..., value=Bob
-2    column=cf:salary, timestamp=..., value=52000
-2 row(s)
+git push
+    │
+    ▼
+GitHub Webhook → POST http://13.42.152.118:8080/github-webhook/
+    │
+    ▼
+Jenkins — checks out code
+    ├── Stage 1: Setup Python venv + pip install
+    ├── Stage 2: pytest unit tests
+    ├── Stage 3: Publish JUnit results
+    └── Stage 4 (main branch only): SCP to Cloudera + spark-submit on YARN
 ```
 
-```ruby
-# Scan with limit
-scan 'itc_runbook_emp', {LIMIT => 1}
+### Jenkinsfile
 
-# Scan specific column only
-scan 'itc_runbook_emp', {COLUMNS => ['cf:salary']}
+```groovy
+pipeline {
+  agent any
+  environment {
+    VENV        = 'unit_testing_bd'
+    CLOUDERA_IP = '13.41.167.97'
+    PEM_KEY     = credentials('cloudera-pem-key')
+  }
 
-# Count rows
-count 'itc_runbook_emp'
+  stages {
+    stage('Checkout') {
+      steps { checkout scm }
+    }
 
-# Delete a specific column value
-delete 'itc_runbook_emp', '2', 'cf:salary'
+    stage('Setup Python') {
+      steps {
+        sh '''
+          python3 -m venv ${VENV}
+          source ${VENV}/bin/activate
+          pip install -r requirements.txt
+        '''
+      }
+    }
 
-# Delete entire row
-deleteall 'itc_runbook_emp', '2'
+    stage('Unit Tests') {
+      steps {
+        sh '''
+          source ${VENV}/bin/activate
+          pytest tests/ --junitxml=pytest.xml -v
+        '''
+      }
+      post { always { junit 'pytest.xml' } }
+    }
 
-# Drop table (disable first)
-disable 'itc_runbook_emp'
-drop 'itc_runbook_emp'
-```
+    stage('Deploy to Cloudera') {
+      when { branch 'main' }
+      steps {
+        sh '''
+          scp -i ${PEM_KEY} -o StrictHostKeyChecking=no \
+            src/curated_layer/full_load.py \
+            ec2-user@${CLOUDERA_IP}:/tmp/
 
-## Live Data: created_users Table
-```ruby
-scan 'created_users', {LIMIT => 3}
-```
-```
-ROW                                    COLUMN+CELL
-006f79c3-f375-46bf-b909-6baa7b8aae97  cf:email=user5574@test.com
-006f79c3-f375-46bf-b909-6baa7b8aae97  cf:first_name=Emma
-006f79c3-f375-46bf-b909-6baa7b8aae97  cf:last_name=Smith
-006f79c3-f375-46bf-b909-6baa7b8aae97  cf:username=user_06853c38
-00b5172d-6372-4e33-9379-e60cfbb282e8  cf:email=user4872@test.com
-00b5172d-6372-4e33-9379-e60cfbb282e8  cf:first_name=Sophia
-00b5172d-6372-4e33-9379-e60cfbb282e8  cf:last_name=Johnson
-010dce60-4230-4273-bb1e-5e31b1b2149f  cf:first_name=John
-010dce60-4230-4273-bb1e-5e31b1b2149f  cf:last_name=Brown
-3 row(s)
-```
+          ssh -i ${PEM_KEY} ec2-user@${CLOUDERA_IP} \
+            "spark-submit --master yarn --deploy-mode client /tmp/full_load.py"
+        '''
+      }
+    }
+  }
 
-## Live Data: cc_fraud_realtime (33,000 rows)
-```ruby
-count 'cc_fraud_realtime'
-```
-```
-Current count: 33000, row: TXN_9999
-33000 row(s)
-```
-
-```ruby
-describe 'cc_fraud_realtime'
-```
-```
-{NAME => 'cf', COMPRESSION => 'SNAPPY', VERSIONS => '1', TTL => 'FOREVER',
- BLOCKCACHE => 'false', BLOCKSIZE => '65536'}
+  post {
+    success { echo 'Pipeline passed — Spark job submitted.' }
+    failure { echo 'Tests failed — deployment blocked.' }
+    always  { deleteDir() }
+  }
+}
 ```
 
-## Write to HBase from PySpark
+### Set Up a New Pipeline in Jenkins
+
+1. Open http://13.42.152.118:8080 → Login: `consultants / WelcomeItc@2022`
+2. **New Item** → **Pipeline** → name it → **OK**
+3. **Pipeline → Definition**: `Pipeline script from SCM`
+4. **SCM**: Git → Repo URL: `https://github.com/uttamraj9/Test_Spark_Jenkins`
+5. **Build Triggers** → check `GitHub hook trigger for GITScm polling`
+6. In GitHub: **Settings → Webhooks → Add webhook**
+   URL: `http://13.42.152.118:8080/github-webhook/`
+   Content type: `application/json` | Trigger: `Just the push event`
+7. Every `git push` now auto-tests → blocks deploy if tests fail
+
+### Writing a Unit Test (pytest)
 
 ```python
-import subprocess
-
-def write_to_hbase(row_key, columns, table):
-    """Write a dict of column values to HBase via hbase shell subprocess."""
-    commands = [f"put '{table}', '{row_key}', 'cf:{k}', '{v}'" for k, v in columns.items()]
-    commands.append("exit")
-    subprocess.run(["hbase", "shell"], input="\n".join(commands).encode(), capture_output=True)
-
-# Write Spark DataFrame rows to HBase
+# tests/test_transforms.py
+import pytest
 from pyspark.sql import SparkSession
-spark = SparkSession.builder.appName("SparkHBase").master("yarn").enableHiveSupport().getOrCreate()
-df = spark.sql("SELECT * FROM itc_runbook.employees")
+from src.curated_layer.full_load import remove_duplicates, normalize_amount
 
-for row in df.collect():
-    write_to_hbase(
-        row_key=str(row["id"]),
-        columns={"name": row["name"], "city": row["city"], "salary": str(row["salary"])},
-        table="itc_runbook_emp"
-    )
-print("All rows written to HBase")
+@pytest.fixture(scope="session")
+def spark():
+    return SparkSession.builder \
+        .master("local[2]") \
+        .appName("unit_test") \
+        .getOrCreate()
+
+def test_remove_duplicates_removes_dupes(spark):
+    data = [("TXN_1", 100.0), ("TXN_1", 100.0), ("TXN_2", 200.0)]
+    df = spark.createDataFrame(data, ["transaction_id", "amount"])
+    result = remove_duplicates(df)
+    assert result.count() == 2
+
+def test_normalize_amount_adds_column(spark):
+    data = [("TXN_1", 100.0)]
+    df = spark.createDataFrame(data, ["transaction_id", "transaction_amount"])
+    result = normalize_amount(df)
+    assert "amt_log" in result.columns
+```
+
+```bash
+# Run tests locally before pushing
+source unit_testing_bd/bin/activate
+pytest tests/ -v
+```
+```
+tests/test_transforms.py::test_remove_duplicates_removes_dupes PASSED
+tests/test_transforms.py::test_normalize_amount_adds_column    PASSED
+2 passed in 4.32s
+```
+
+## Docker for Big Data Jobs
+
+Docker packages a Spark job with all its Python dependencies into an image that runs identically on any machine.
+
+### Dockerfile
+
+```dockerfile
+FROM python:3.8-slim
+
+RUN pip install pyspark==3.2.4 pandas scikit-learn
+
+WORKDIR /app
+COPY src/ /app/src/
+COPY requirements.txt .
+RUN pip install -r requirements.txt
+
+CMD ["spark-submit", "--master", "local[*]", "/app/src/curated_layer/full_load.py"]
+```
+
+```bash
+# Build the image
+docker build -t itc/spark-etl:1.0 .
+
+# Run it locally
+docker run --rm itc/spark-etl:1.0
+
+# Push to the local registry
+docker tag itc/spark-etl:1.0 localhost:5000/itc/spark-etl:1.0
+docker push localhost:5000/itc/spark-etl:1.0
+```
+
+### When to Use Docker vs. Direct spark-submit
+
+| Scenario | Approach |
+|---|---|
+| Deploying to Cloudera YARN cluster | `spark-submit --master yarn` directly |
+| Local testing / CI environment | Docker container |
+| Kubernetes-based Spark | Docker image via `spark-submit --master k8s://` |
+| Packaging complex Python deps | Docker (avoids cluster-side pip installs) |
+
+## Putting It All Together
+
+```bash
+# 1. Write your transform
+vim src/curated_layer/full_load.py
+
+# 2. Write a unit test
+vim tests/test_transforms.py
+
+# 3. Run tests locally first
+pytest tests/ -v
+
+# 4. Commit and push — Jenkins picks it up automatically
+git add src/curated_layer/full_load.py tests/test_transforms.py
+git commit -m "Add high_risk_v2 flag using velocity + amount"
+git push origin feature/high-risk-v2
+
+# 5. Watch the pipeline in Jenkins
+# http://13.42.152.118:8080
+
+# 6. Merge to main → Deploy stage runs automatically
 ```
 
 ## Day 9 Exercise
-1. Create HBase table `<yourname>_orders` with column family `cf`
-2. Insert 5 rows: row key = order ID, columns: `cf:product`, `cf:amount`, `cf:status`
-3. Use `get` to retrieve a single row by key
-4. Use `scan` with `{COLUMNS => ['cf:amount']}` to see only amounts
-5. Count rows: `count '<yourname>_orders'`
-6. Delete one row and verify it's gone
-7. Disable and drop the table
+1. Clone `https://github.com/uttamraj9/Test_Spark_Jenkins`
+2. Create a branch `feature/day9-<yourname>`
+3. Add a unit test in `tests/` that validates one of the Day 7 transforms
+4. Push the branch — watch Jenkins pick it up and run the test
+5. Fix any failures Jenkins reports, push again until green
+6. Create a `Dockerfile` that installs `pyspark` and runs your test script
+7. Build the Docker image locally: `docker build -t itc/<yourname>:1.0 .`
 
 ---
 
@@ -1943,3 +2178,253 @@ Try building the full pipeline without looking at the steps above:
 | Jenkins | 2.x | — | :8080 | CI/CD pipeline automation |
 | Cloudera Manager | 7.1.7 | — | :7180 | Cluster management & monitoring |
 | Hue | CDH 7.1.7 | — | :8888 | Web UI for SQL, HDFS, Jobs |
+
+---
+
+# Appendix A — Sqoop (Batch Database Ingestion)
+
+> Sqoop transfers data between relational databases and Hadoop. Used in Day 10 Capstone Step 1 to pull CC fraud data from PostgreSQL into HDFS. Reference this appendix when building that pipeline step.
+
+## What is Sqoop?
+
+```
+PostgreSQL (testdb.cc_fraud_trans)
+          │
+     sqoop import
+          │
+          ▼
+HDFS: /class_project/input/raw_data_sqoop/
+          │
+     Hive external table
+          │
+          ▼
+Hive: bd_class_project.cc_fraud_trans
+```
+
+## Sqoop Version
+```bash
+sqoop version
+```
+```
+Sqoop 1.4.7.7.1.7.0-551
+```
+
+## List Tables in PostgreSQL
+```bash
+sqoop list-tables \
+  --connect 'jdbc:postgresql://13.42.152.118:5432/testdb' \
+  --username admin \
+  --password admin123
+```
+```
+cc_fraud_trans
+cc_fraud_streaming_data
+```
+
+## Full Import
+```bash
+sqoop import \
+  --connect 'jdbc:postgresql://13.42.152.118:5432/testdb' \
+  --username admin \
+  --password admin123 \
+  --table cc_fraud_trans \
+  --target-dir /tmp/itc_runbook/sqoop_import \
+  --num-mappers 4 \
+  --fields-terminated-by ',' \
+  --lines-terminated-by '\n' \
+  --delete-target-dir
+```
+```
+INFO mapreduce.ImportJobBase: Transferred 4.22 MB in 38.2 seconds
+INFO mapreduce.ImportJobBase: Retrieved 37000 records.
+```
+
+```bash
+hdfs dfs -ls /tmp/itc_runbook/sqoop_import/
+```
+```
+-rwxrwxrwx  3 ec2-user supergroup  4424726  part-m-00000
+-rwxrwxrwx  3 ec2-user supergroup   856765  part-m-00001
+-rwxrwxrwx  3 ec2-user supergroup        0  part-m-00002
+-rwxrwxrwx  3 ec2-user supergroup        0  part-m-00003
+```
+
+```bash
+# Preview the imported data
+hdfs dfs -cat /tmp/itc_runbook/sqoop_import/part-m-00000 | head -3
+```
+```
+TXN_2862,USER_6086,72.54,ATM Withdrawal,2024-01-01 00:10:52,1846.73,...,0
+TXN_47895,USER_6749,78.68,Bank Transfer,2024-01-01 00:14:27,2140.26,...,0
+TXN_20029,USER_6468,63.97,POS,2024-01-01 00:17:08,3012.45,...,1
+```
+
+## Incremental Import (append new rows only)
+```bash
+sqoop import \
+  --connect 'jdbc:postgresql://13.42.152.118:5432/testdb' \
+  --username admin \
+  --password admin123 \
+  --table cc_fraud_trans \
+  --target-dir /tmp/itc_runbook/sqoop_import \
+  --num-mappers 2 \
+  --incremental append \
+  --check-column transaction_id \
+  --last-value TXN_37000
+```
+
+## Import Directly into Hive
+```bash
+sqoop import \
+  --connect 'jdbc:postgresql://13.42.152.118:5432/testdb' \
+  --username admin \
+  --password admin123 \
+  --table cc_fraud_trans \
+  --hive-import \
+  --hive-database bd_class_project \
+  --hive-table cc_fraud_trans \
+  --num-mappers 4 \
+  --delete-target-dir
+```
+
+## Save a Sqoop Job (reuse across runs)
+```bash
+sqoop job \
+  --create cc_fraud_daily_import \
+  -- import \
+  --connect 'jdbc:postgresql://13.42.152.118:5432/testdb' \
+  --username admin --password admin123 \
+  --table cc_fraud_trans \
+  --target-dir /tmp/itc_runbook/sqoop_import \
+  --num-mappers 4
+
+sqoop job --list
+sqoop job --exec cc_fraud_daily_import
+```
+
+---
+
+# Appendix B — HBase (NoSQL on Hadoop)
+
+> HBase stores the real-time Kafka consumer output used in Day 10 Capstone Step 5. Reference this appendix when building the streaming portion of the pipeline.
+
+## What is HBase?
+
+HBase is a **distributed NoSQL database** built on top of HDFS. Unlike Hive's batch SQL, HBase gives **millisecond random read/write access** to individual rows — ideal for real-time lookups.
+
+```
+Data model: Table → Row Key → Column Family → Column → Value
+
+Example: cc_fraud_realtime
+  Row Key: TXN_12345
+    cf:user_id            = USER_6086
+    cf:transaction_amount = 72.54
+    cf:fraud_label        = 0
+```
+
+## Live Tables on This Cluster
+```bash
+echo 'list' | hbase shell
+```
+```
+TABLE
+cc_fraud_realtime    ← 33,000 rows from Kafka consumer
+created_users        ← 1,221 user records from Spark pipeline
+2 row(s)
+```
+
+## HBase Shell Basics
+
+```bash
+hbase shell
+```
+
+```ruby
+# List all tables
+list
+
+# Create a table with column family 'cf'
+create 'itc_runbook_emp', 'cf'
+
+# Insert rows
+put 'itc_runbook_emp', '1', 'cf:name',   'Alice'
+put 'itc_runbook_emp', '1', 'cf:city',   'London'
+put 'itc_runbook_emp', '1', 'cf:salary', '45000'
+
+put 'itc_runbook_emp', '2', 'cf:name',   'Bob'
+put 'itc_runbook_emp', '2', 'cf:city',   'Manchester'
+put 'itc_runbook_emp', '2', 'cf:salary', '52000'
+
+# Read a specific row by key — instant lookup
+get 'itc_runbook_emp', '1'
+```
+```
+COLUMN                CELL
+cf:city               timestamp=1774862595469, value=London
+cf:name               timestamp=1774862595464, value=Alice
+cf:salary             timestamp=1774862595469, value=45000
+```
+
+```ruby
+# Scan entire table
+scan 'itc_runbook_emp'
+
+# Scan with limit
+scan 'itc_runbook_emp', {LIMIT => 1}
+
+# Scan specific column only
+scan 'itc_runbook_emp', {COLUMNS => ['cf:salary']}
+
+# Count rows
+count 'itc_runbook_emp'
+
+# Delete a specific column value
+delete 'itc_runbook_emp', '2', 'cf:salary'
+
+# Delete entire row
+deleteall 'itc_runbook_emp', '2'
+
+# Drop table (disable first)
+disable 'itc_runbook_emp'
+drop 'itc_runbook_emp'
+```
+
+## Live Data: cc_fraud_realtime (33,000 rows)
+```ruby
+count 'cc_fraud_realtime'
+```
+```
+Current count: 33000, row: TXN_9999
+33000 row(s)
+```
+
+```ruby
+describe 'cc_fraud_realtime'
+```
+```
+{NAME => 'cf', COMPRESSION => 'SNAPPY', VERSIONS => '1', TTL => 'FOREVER',
+ BLOCKCACHE => 'false', BLOCKSIZE => '65536'}
+```
+
+## Write to HBase from PySpark
+
+```python
+import subprocess
+
+def write_to_hbase(row_key, columns, table):
+    commands = [f"put '{table}', '{row_key}', 'cf:{k}', '{v}'" for k, v in columns.items()]
+    commands.append("exit")
+    subprocess.run(["hbase", "shell"], input="\n".join(commands).encode(), capture_output=True)
+
+from pyspark.sql import SparkSession
+spark = SparkSession.builder.appName("SparkHBase").master("yarn").enableHiveSupport().getOrCreate()
+df = spark.sql("SELECT * FROM itc_runbook.employees")
+
+for row in df.collect():
+    write_to_hbase(
+        row_key=str(row["id"]),
+        columns={"name": row["name"], "city": row["city"], "salary": str(row["salary"])},
+        table="itc_runbook_emp"
+    )
+print("All rows written to HBase")
+```
