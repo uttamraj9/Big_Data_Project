@@ -73,11 +73,11 @@ ssh -i "test_key.pem" ec2-user@13.42.152.118
 ### PostgreSQL (Training Portal Server)
 | Field | Value |
 |---|---|
-| Host | 13.42.152.118 |
+| Host | xxxxxx|
 | Port | 5432 |
 | Database | testdb |
 | User | admin |
-| Password | admin123 |
+| Password | xxxxx |
 
 ---
 
