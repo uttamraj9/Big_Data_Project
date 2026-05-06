@@ -50,12 +50,12 @@ ssh -i "test_key.pem" ec2-user@13.42.152.118
 ### Web UIs
 | Service | URL | User | Password |
 |---|---|---|---|
-| Cloudera Manager | http://13.41.167.97:7180 | admin | Admin@2026 |
-| Hue (SQL / HDFS browser) | http://13.41.167.97:8888 | admin | Admin@2026 |
-| YARN ResourceManager | http://13.41.167.97:8088 | — | — |
-| Spark History Server | http://13.41.167.97:18088 | — | — |
-| Jenkins | http://13.42.152.118:8080 | consultants | WelcomeItc@2022 |
-| Training Portal | http://13.42.152.118:3000 | — | — |
+| Cloudera Manager | http://xxxxxx:7180 | admin | xxxxx@2026 |
+| Hue (SQL / HDFS browser) | xxxxxx:8888 | admin | xxxxx@2026 |
+| YARN ResourceManager | http://xxxxxx:8088 | — | — |
+| Spark History Server | http://xxxxx:18088 | — | — |
+| Jenkins | http://xxxxxxxxx:8080 | consultants | xxxxx@2022 |
+| Training Portal | http://xxxxxx:3000 | — | — |
 
 ### Internal Cluster Hostnames
 | Role | Hostname | Port |
