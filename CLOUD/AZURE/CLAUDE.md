@@ -51,27 +51,26 @@ Flow: PostgreSQL (ON_PREM) → ADF → ADLS raw → Databricks (raw→curated→
 - Claude's sandbox is isolated: **no `az`, no Databricks CLI, no laptop access.** It can only
   read/write the Downloads folder. Give Uttam commands to run locally; don't try to run cloud CLI here.
 
-## Databricks cluster (EventHubs library issue)
+## Databricks cluster
 - Workspace host: `adb-7405609294150794.14.azuredatabricks.net`
 - Cluster: `ADBcluster`, id `0417-133347-aqen2ief`
+- Spark version: 17.3.x-scala2.13 (DBR 17.3)
+- Security mode: `USER_ISOLATION` (Unity Catalog Shared access)
 
-### Problem
-Installing Maven lib for Event Hubs failed with two bugs:
-1. Coordinate had version `undefined`: `com.microsoft.azure:azure-eventhubs-spark_2.12:undefined`.
-2. `PERMISSION_DENIED ... not in the artifact allowlist` → cluster is UC **Shared** access mode,
-   where Maven/JAR libs must be on the metastore allowlist.
+### EventHubs Integration
+**Recommended approach:** Use Event Hubs **Kafka-compatible endpoint** with Spark's built-in `kafka` source.
+- No library installation required
+- Works seamlessly on Shared clusters
+- EventHubs-Spark connector (`azure-eventhubs-spark`) is in maintenance mode
 
-### Fix / runbook (run in VS Code terminal on laptop)
-1. Check access mode:
-   `databricks clusters get 0417-133347-aqen2ief | grep -i data_security_mode`
-   - `USER_ISOLATION` = Shared → needs allowlist (step 2)
-   - `SINGLE_USER`/`NONE` = allowlist N/A → go to step 3
-2. If Shared, as **metastore admin** run SQL:
-   `ALTER METASTORE ADD ARTIFACT 'com.microsoft.azure:azure-eventhubs-spark_2.12:2.3.22' MAVEN;`
-3. Install with a valid version (2.3.22 is latest; use `_2.12` for Scala 2.12 runtime, `_2.13` for 2.13):
-   `databricks libraries install --cluster-id 0417-133347-aqen2ief --maven-coordinates com.microsoft.azure:azure-eventhubs-spark_2.12:2.3.22`
-4. Verify: `databricks libraries cluster-status --cluster-id 0417-133347-aqen2ief`
+See `DATABRICKS_EVENTHUBS_FIX.md` for:
+- Complete Kafka endpoint integration code
+- Alternative: Adding EventHubs Maven library to UC allowlist (requires metastore admin)
+- Troubleshooting steps
 
-### Alternative (cleanest)
-Event Hubs exposes a **Kafka-compatible endpoint** → use Spark's built-in `kafka` source.
-No library install, works on Shared clusters. eventhubs-spark connector is in maintenance mode anyway.
+Quick check cluster status:
+```bash
+TOKEN=$(az account get-access-token --resource 2ff814a6-3304-4ab8-85cb-cd0e6f879c1d --query accessToken -o tsv)
+curl -s "https://adb-7405609294150794.14.azuredatabricks.net/api/2.0/clusters/get?cluster_id=0417-133347-aqen2ief" \
+  -H "Authorization: Bearer $TOKEN" | python3 -c "import sys,json; d=json.load(sys.stdin); print(f\"State: {d.get('state')} | Security: {d.get('data_security_mode')}\")"
+```
