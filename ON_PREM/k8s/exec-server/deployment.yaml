@@ -1,0 +1,87 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: exec-server
+  namespace: itc-training
+  labels:
+    app: exec-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: exec-server
+  template:
+    metadata:
+      labels:
+        app: exec-server
+    spec:
+      containers:
+        - name: exec-server
+          image: localhost:5000/exec-server:latest
+          ports:
+            - containerPort: 8891
+          env:
+            - name: SSH_HOST
+              value: "13.41.167.97"
+            - name: SSH_USER
+              value: "consultant"
+            - name: SSH_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: exec-server-secret
+                  key: ssh-pass
+            - name: PYTHON_BIN
+              value: "/home/consultant/pyenv/bin/python"
+            - name: HOME_DIR
+              value: "/home/consultant"
+            - name: DB_HOST
+              value: "13.42.152.118"
+            - name: DB_PORT
+              value: "5432"
+            - name: DB_USER
+              value: "admin"
+            - name: DB_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: exec-server-secret
+                  key: db-pass
+            - name: DB_NAME
+              value: "testdb"
+            # Portal database (auth / tracking / remarks)
+            - name: PORTAL_DB_HOST
+              value: "172.31.14.3"
+            - name: PORTAL_DB_PORT
+              value: "5433"
+            - name: PORTAL_DB_USER
+              value: "portal_admin"
+            - name: PORTAL_DB_PASS
+              valueFrom:
+                secretKeyRef:
+                  name: exec-server-secret
+                  key: portal-db-pass
+            - name: PORTAL_DB_NAME
+              value: "itcportal"
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: exec-server-secret
+                  key: jwt-secret
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8891
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8891
+            initialDelaySeconds: 5
+            periodSeconds: 10

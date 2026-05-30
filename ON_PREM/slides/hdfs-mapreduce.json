@@ -1,0 +1,155 @@
+{
+  "slides": [
+    {
+      "id": "s1",
+      "title": "Why HDFS Exists",
+      "type": "intro",
+      "headline": "A single machine cannot store or process petabytes — HDFS makes a cluster look like one disk",
+      "points": [
+        "2003 problem: Google needed to index the entire web — no single server had enough disk",
+        "Solution: split files into chunks, spread across hundreds of cheap commodity machines",
+        "HDFS (Hadoop Distributed File System) is the open-source version of Google's GFS",
+        "One API hides all the complexity — you read and write as if it were a local file system"
+      ],
+      "code": null,
+      "callout": "HDFS is optimised for large sequential reads (analytics), not random writes (OLTP). It is not a replacement for a database.",
+      "arch": null
+    },
+    {
+      "id": "s2",
+      "title": "HDFS Architecture",
+      "type": "architecture",
+      "headline": "One NameNode knows where every block lives — many DataNodes actually store them",
+      "points": [
+        "NameNode — the master: stores file→block→node metadata entirely in RAM",
+        "DataNode — the workers: store 128 MB blocks; send a heartbeat every 3 seconds",
+        "Client — talks to NameNode to get the block map, then reads/writes directly to DataNodes",
+        "Secondary NameNode — checkpoints NameNode metadata (NOT a hot standby)"
+      ],
+      "code": null,
+      "callout": "If the NameNode goes down, the cluster is blind — HA mode runs an Active + Standby NameNode with ZooKeeper failover.",
+      "arch": "  ┌──────────────────────────────────┐\n  │         NameNode (Master)        │  ← Metadata in RAM\n  │  /user/consultant/cc_fraud.csv   │\n  │  Block A → DN1, DN2, DN3         │\n  │  Block B → DN2, DN3, DN1         │\n  └──────┬──────────┬────────────────┘\n         │heartbeat │block report\n    ┌────▼────┐ ┌───▼─────┐ ┌─────────┐\n    │DataNode1│ │DataNode2│ │DataNode3│\n    │Block A  │ │Block A  │ │Block A  │  ← 3× replicated\n    │Block C  │ │Block B  │ │Block B  │\n    └─────────┘ └─────────┘ └─────────┘"
+    },
+    {
+      "id": "s3",
+      "title": "Block Storage & Replication",
+      "type": "concept",
+      "headline": "Every file is split into 128 MB blocks — each block lives on 3 different nodes",
+      "points": [
+        "Block size 128 MB — a 500 MB file becomes 4 blocks spread across the cluster",
+        "Replication factor 3 — each block is copied to 3 DataNodes for fault tolerance",
+        "Rack awareness — HDFS places replicas on different server racks to survive rack failure",
+        "Losing one DataNode loses no data — the other two replicas take over immediately"
+      ],
+      "code": null,
+      "callout": "Storage cost of replication: a 1 TB dataset consumes 3 TB on disk. This is intentional — disk is cheap, data loss is not.",
+      "arch": "  500 MB file → 4 blocks (128 MB each)\n\n  Block A  ──► DN1 (rack 1), DN2 (rack 1), DN3 (rack 2)\n  Block B  ──► DN2 (rack 1), DN3 (rack 2), DN4 (rack 2)\n  Block C  ──► DN3 (rack 2), DN4 (rack 2), DN1 (rack 1)\n  Block D  ──► DN4 (rack 2), DN1 (rack 1), DN2 (rack 1)\n\n  DataNode failure → NameNode triggers re-replication in minutes"
+    },
+    {
+      "id": "s4",
+      "title": "HDFS vs Traditional Storage",
+      "type": "usecase",
+      "headline": "HDFS wins at scale and cost — but it makes different trade-offs than a database or NAS",
+      "points": [
+        "vs NAS/SAN — HDFS has no single storage appliance bottleneck; scales by adding nodes",
+        "vs RDBMS — HDFS stores any format (CSV, Parquet, JSON, images); no schema required at write time",
+        "vs S3/ADLS — HDFS is co-located with compute (data locality = Spark reads local blocks)",
+        "Write-once — files cannot be edited in place; analytics workloads (read heavy) love this"
+      ],
+      "code": null,
+      "callout": "Schema-on-read: HDFS stores raw data. Hive and Spark interpret the schema when they query it. This means one file can be read by multiple tools with different schemas.",
+      "arch": "  Traditional (scale-up)        HDFS (scale-out)\n  ┌────────────────────┐        ┌──────────────────────────┐\n  │  Big Expensive SAN │        │  Node1   Node2   Node3   │\n  │  2 TB, one vendor  │   vs   │  2 TB  + 2 TB  + 2 TB   │\n  │  single point fail │        │  add more nodes any time │\n  └────────────────────┘        └──────────────────────────┘"
+    },
+    {
+      "id": "s5",
+      "title": "ITC Use Case — cc_fraud Pipeline",
+      "type": "usecase",
+      "headline": "100k credit card transactions travel from PostgreSQL through HDFS to Hive and Spark",
+      "points": [
+        "Source: PostgreSQL table cc_fraud_trans (13.42.152.118:5432, testdb)",
+        "Sqoop imports the table daily into HDFS at /user/consultant/cc_fraud/raw/",
+        "Hive creates an external table over that HDFS path — no data movement",
+        "PySpark reads the Hive table, applies 10 transformations, writes curated layer back to HDFS"
+      ],
+      "code": null,
+      "callout": null,
+      "arch": "  PostgreSQL (source)\n       13.42.152.118:5432\n            │\n            │  Sqoop (MapReduce over JDBC)\n            ▼\n  HDFS  /user/consultant/cc_fraud/raw/\n            │\n            ├──► Hive external table  (bd_class_project.cc_fraud_trans)\n            │\n            └──► PySpark job  ──► HDFS  /user/consultant/cc_fraud/curated/\n                                          │\n                                          └──► Hive curated table\n                                               (cc_fraud_trans_curated)"
+    },
+    {
+      "id": "s6",
+      "title": "MapReduce — The Original Big Data Engine",
+      "type": "concept",
+      "headline": "MapReduce moves computation to where the data lives — not data to where the computation is",
+      "points": [
+        "Map phase — each DataNode processes its local blocks in parallel (data locality)",
+        "Shuffle & Sort — the framework groups all identical keys across all nodes",
+        "Reduce phase — one function aggregates each key's values into a final result",
+        "YARN ResourceManager schedules all Map and Reduce tasks across the cluster"
+      ],
+      "code": null,
+      "callout": "Spark has replaced MapReduce for most workloads — it runs 10-100× faster by keeping data in memory instead of writing to HDFS between stages.",
+      "arch": "  Input (HDFS blocks)\n  ┌──────────┐  ┌──────────┐  ┌──────────┐\n  │ Block A  │  │ Block B  │  │ Block C  │\n  └────┬─────┘  └────┬─────┘  └────┬─────┘\n       │ MAP          │ MAP          │ MAP\n       ▼              ▼              ▼\n  (word,1)×N    (word,1)×N    (word,1)×N\n       │              │              │\n       └──────────────┴──────────────┘\n              SHUFFLE & SORT\n                    │\n             ┌──────▼──────┐\n             │   REDUCE    │\n             │ word → count│\n             └─────────────┘\n              Output (HDFS)"
+    },
+    {
+      "id": "s7",
+      "title": "HDFS in the CDH Ecosystem",
+      "type": "architecture",
+      "headline": "HDFS is the foundation — every compute engine in the stack reads from and writes to it",
+      "points": [
+        "Hive — SQL queries that treat HDFS directories as tables",
+        "Spark — reads HDFS directly as DataFrames; writes results back to HDFS",
+        "Impala — in-memory SQL over HDFS, faster than Hive for ad-hoc queries",
+        "Oozie — schedules Sqoop and Hive jobs that move data through HDFS"
+      ],
+      "code": null,
+      "callout": null,
+      "arch": "  ┌──────────┬──────────┬───────────┬───────────┐\n  │  Spark   │   Hive   │  Impala   │   Oozie   │\n  │(DataFrames│ (HQL/Tez)│(MPP SQL)  │(Scheduler)│\n  └────┬─────┴────┬─────┴─────┬─────┴─────┬─────┘\n       │          │           │           │\n       └──────────┴───────────┴───────────┘\n                        │  read / write\n                        ▼\n       ┌──────────────────────────────────┐\n       │           HDFS Storage           │\n       │  /user/consultant/cc_fraud/      │\n       │  /user/hive/warehouse/           │\n       │  3× replication, 128 MB blocks   │\n       └──────────────────────────────────┘"
+    },
+    {
+      "id": "s8",
+      "title": "Fault Tolerance in Practice",
+      "type": "concept",
+      "headline": "A DataNode can die mid-job and the cluster continues without interruption",
+      "points": [
+        "Heartbeat timeout — if a DataNode misses 10 minutes of heartbeats, NameNode marks it dead",
+        "Automatic re-replication — NameNode copies under-replicated blocks to healthy nodes",
+        "Job recovery — YARN reschedules failed Map/Reduce tasks on other nodes automatically",
+        "Safe mode — NameNode enters safe mode on startup until enough block reports arrive"
+      ],
+      "code": null,
+      "callout": "Safe mode blocks all writes. If a restart leaves the cluster in safe mode, run: hdfs dfsadmin -safemode leave",
+      "arch": "  Normal state (3 replicas)\n  DN1[A,B]  DN2[A,C]  DN3[B,C]\n\n  DN2 dies\n       │\n       ▼\n  NameNode detects: Block A under-replicated (2 copies)\n  NameNode detects: Block C under-replicated (1 copy)\n       │\n       ▼\n  NameNode instructs DN1 → copy Block A to DN3\n  NameNode instructs DN1 → copy Block C to DN3\n       │\n       ▼\n  DN1[A,B]  DN3[A,B,C,C]  ← re-replicated within minutes"
+    },
+    {
+      "id": "s9",
+      "title": "Key HDFS Commands Reference",
+      "type": "concept",
+      "headline": "Eight commands cover 90% of day-to-day HDFS work on the cluster",
+      "points": [
+        "hdfs dfs -ls / -mkdir / -rm -r  →  navigate and manage directories",
+        "hdfs dfs -put / -get / -getmerge  →  move data between local and HDFS",
+        "hdfs dfs -cat / -tail  →  inspect file contents without downloading",
+        "hdfs dfsadmin -report  →  cluster health: live nodes, capacity, usage"
+      ],
+      "code": null,
+      "callout": "Practice these in the Linux Shell lab before the Sqoop session. Every tool (Sqoop, Hive, Spark) writes to HDFS — you must be able to verify the output.",
+      "arch": null
+    },
+    {
+      "id": "s10",
+      "title": "HDFS — Key Takeaways",
+      "type": "summary",
+      "headline": "HDFS turns a rack of cheap servers into a reliable, scalable storage system for big data",
+      "points": [
+        "NameNode = brain (metadata in RAM) — DataNodes = storage (128 MB blocks on disk)",
+        "3× replication = fault tolerance; rack awareness = survives entire rack failure",
+        "Write-once, read-many — designed for batch analytics, not transactional updates",
+        "Foundation of CDH stack — Hive, Spark, Impala, and Oozie all read/write HDFS",
+        "In ITC pipeline: cc_fraud_trans lives in HDFS at /user/consultant/cc_fraud/raw/"
+      ],
+      "code": null,
+      "callout": "Practical lab: create a directory, upload the cc_fraud CSV, run WordCount, verify with hdfs dfs -cat. See the Notes tab for step-by-step commands.",
+      "arch": null
+    }
+  ]
+}

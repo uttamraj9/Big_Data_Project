@@ -3,6 +3,8 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci --silent
 COPY . .
+ARG VITE_MSAL_CLIENT_ID
+ENV VITE_MSAL_CLIENT_ID=$VITE_MSAL_CLIENT_ID
 RUN npm run build
 
 FROM nginx:1.25-alpine

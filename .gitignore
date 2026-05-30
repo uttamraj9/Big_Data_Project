@@ -1,4 +1,4 @@
 .env
 __pycache__/
 .idea/
-.idea_modules/
+.idea_modules/.DS_Store

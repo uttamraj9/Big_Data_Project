@@ -1,0 +1,167 @@
+pipeline {
+  agent any
+
+  environment {
+    PORTAL_SERVER = "13.42.152.118"
+    REGISTRY      = "localhost:5000"
+    NAMESPACE     = "itc-training"
+    PEM           = credentials('portal-server-pem')   // Jenkins credential ID
+    SSH           = "ssh -o StrictHostKeyChecking=no -i \$PEM"
+    SCP           = "scp -o StrictHostKeyChecking=no -i \$PEM"
+    PORTAL_DIR    = "/opt/itc/build/training-portal"
+    EXEC_DIR      = "/opt/itc/build/exec-server"
+    TF_DIR        = "/opt/itc/terraform"
+  }
+
+  stages {
+
+    stage('Checkout') {
+      steps { checkout scm }
+    }
+
+    // ── 1. Build exec-server Docker image ─────────────────────────
+    stage('Build exec-server') {
+      steps {
+        sh """
+          ${SSH} ec2-user@${PORTAL_SERVER} "mkdir -p ${EXEC_DIR}"
+          ${SCP} ON_PREM/docker/exec-server/Dockerfile       ec2-user@${PORTAL_SERVER}:${EXEC_DIR}/
+          ${SCP} ON_PREM/docker/exec-server/app.py           ec2-user@${PORTAL_SERVER}:${EXEC_DIR}/
+          ${SCP} ON_PREM/docker/exec-server/requirements.txt ec2-user@${PORTAL_SERVER}:${EXEC_DIR}/
+          ${SSH} ec2-user@${PORTAL_SERVER} "
+            docker build -t ${REGISTRY}/exec-server:latest ${EXEC_DIR}
+            docker push  ${REGISTRY}/exec-server:latest
+          "
+        """
+      }
+    }
+
+    // ── 2. Build training-portal Docker image ─────────────────────
+    stage('Build training-portal') {
+      steps {
+        sh """
+          rsync -az --exclude=node_modules --exclude=dist --exclude=.git \\
+            -e "ssh -o StrictHostKeyChecking=no -i \$PEM" \\
+            itc-training-portal/ ec2-user@${PORTAL_SERVER}:${PORTAL_DIR}/
+
+          # Always use nginx.conf from infra repo — single source of truth
+          ${SCP} ON_PREM/docker/training-portal/nginx.conf ec2-user@${PORTAL_SERVER}:${PORTAL_DIR}/
+
+          ${SSH} ec2-user@${PORTAL_SERVER} "
+            docker build -t ${REGISTRY}/itc-training-portal:latest ${PORTAL_DIR}
+            docker push  ${REGISTRY}/itc-training-portal:latest
+          "
+        """
+      }
+    }
+
+    // ── 3. Bootstrap portal database ─────────────────────────────
+    stage('Bootstrap portal DB') {
+      steps {
+        sh """
+          ${SCP} ON_PREM/docker/exec-server/init_portal_db.sql ec2-user@${PORTAL_SERVER}:/tmp/init_portal_db.sql
+          ${SSH} ec2-user@${PORTAL_SERVER} "
+            # Start itc-portal-db container if not already running
+            if ! docker ps --format '{{.Names}}' | grep -q '^itc-portal-db$'; then
+              docker run -d --name itc-portal-db --restart=always \\
+                -e POSTGRES_USER=portal_admin \\
+                -e POSTGRES_PASSWORD='TrainingPortal#2026' \\
+                -e POSTGRES_DB=itcportal \\
+                -p 5433:5432 \\
+                -v portal_db_data:/var/lib/postgresql/data \\
+                postgres:15 || true
+              sleep 10  # wait for Postgres to start
+            fi
+            docker exec -i itc-portal-db psql -U portal_admin -d itcportal < /tmp/init_portal_db.sql || true
+          "
+        """
+      }
+    }
+
+    // ── 4. Deploy exec-server + lab-proxy to K8s ──────────────────
+    stage('Apply K8s manifests') {
+      steps {
+        sh """
+          ${SSH} ec2-user@${PORTAL_SERVER} "mkdir -p /tmp/k8s-exec"
+          ${SCP} ON_PREM/k8s/exec-server/deployment.yaml ec2-user@${PORTAL_SERVER}:/tmp/k8s-exec/
+          ${SCP} ON_PREM/k8s/exec-server/service.yaml    ec2-user@${PORTAL_SERVER}:/tmp/k8s-exec/
+
+          # Upload updated lab-proxy nginx (no more 8891 block)
+          ${SCP} ON_PREM/docker/lab-proxy/nginx.conf ec2-user@${PORTAL_SERVER}:/tmp/lab-proxy-nginx.conf
+          ${SCP} ON_PREM/k8s/lab-proxy/service.yaml  ec2-user@${PORTAL_SERVER}:/tmp/lab-proxy-service.yaml
+          ${SCP} ON_PREM/k8s/lab-proxy/deployment.yaml ec2-user@${PORTAL_SERVER}:/tmp/lab-proxy-deploy.yaml
+
+          ${SSH} ec2-user@${PORTAL_SERVER} "
+            # exec-server-secret (recreate to ensure all keys present)
+            kubectl delete secret exec-server-secret -n ${NAMESPACE} --ignore-not-found
+            kubectl create secret generic exec-server-secret \\
+              --from-literal=ssh-pass=WelcomeItc@2026 \\
+              --from-literal=db-pass=admin123 \\
+              --from-literal=portal-db-pass=TrainingPortal#2026 \\
+              --from-literal=jwt-secret=itc-training-portal-jwt-secret-2026 \\
+              -n ${NAMESPACE}
+
+            kubectl apply -f /tmp/k8s-exec/
+
+            # Rebuild lab-proxy configmap
+            kubectl delete configmap lab-proxy-nginx-conf -n ${NAMESPACE} --ignore-not-found
+            kubectl create configmap lab-proxy-nginx-conf \\
+              --from-file=default.conf=/tmp/lab-proxy-nginx.conf -n ${NAMESPACE}
+
+            kubectl apply -f /tmp/lab-proxy-service.yaml
+            kubectl apply -f /tmp/lab-proxy-deploy.yaml
+          "
+        """
+      }
+    }
+
+    // ── 5. Rollout ─────────────────────────────────────────────────
+    stage('Rollout restarts') {
+      steps {
+        sh """
+          ${SSH} ec2-user@${PORTAL_SERVER} "
+            kubectl rollout restart deployment/exec-server      -n ${NAMESPACE}
+            kubectl rollout restart deployment/training-portal  -n ${NAMESPACE}
+            kubectl rollout restart deployment/lab-proxy        -n ${NAMESPACE}
+            kubectl rollout status  deployment/exec-server      -n ${NAMESPACE} --timeout=120s
+            kubectl rollout status  deployment/training-portal  -n ${NAMESPACE} --timeout=120s
+            kubectl rollout status  deployment/lab-proxy        -n ${NAMESPACE} --timeout=120s
+          "
+        """
+      }
+    }
+
+    // ── 6. Terraform ───────────────────────────────────────────────
+    stage('Terraform apply') {
+      steps {
+        sh """
+          ${SSH} ec2-user@${PORTAL_SERVER} "mkdir -p ${TF_DIR}"
+          ${SCP} -r ON_PREM/terraform/. ec2-user@${PORTAL_SERVER}:${TF_DIR}/
+          ${SSH} ec2-user@${PORTAL_SERVER} "
+            cd ${TF_DIR}
+            terraform init   -reconfigure -input=false
+            terraform apply  -auto-approve -input=false
+          "
+        """
+      }
+    }
+
+    // ── 7. Apache config ───────────────────────────────────────────
+    stage('Update Apache') {
+      steps {
+        sh """
+          ${SCP} ON_PREM/apache/training-portal.conf ec2-user@${PORTAL_SERVER}:/tmp/
+          ${SSH} ec2-user@${PORTAL_SERVER} "
+            sudo cp /tmp/training-portal.conf /etc/httpd/conf.d/training-portal.conf
+            sudo systemctl reload httpd
+          "
+        """
+      }
+    }
+
+  }
+
+  post {
+    success { echo "Portal live at http://${PORTAL_SERVER}:3000" }
+    failure { echo 'Deployment failed — check stage logs above'  }
+  }
+}

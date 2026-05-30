@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: exec-server
+  namespace: itc-training
+  labels:
+    app: exec-server
+spec:
+  type: ClusterIP
+  selector:
+    app: exec-server
+  ports:
+    - name: http
+      port: 8891
+      targetPort: 8891
