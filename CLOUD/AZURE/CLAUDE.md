@@ -45,6 +45,31 @@ Flow: PostgreSQL (ON_PREM) → ADF → ADLS raw → Databricks (raw→curated→
 
 ---
 
+## Event Hub → Databricks → Cosmos DB Demo
+
+**Working demo:** `eventhub_databricks_demo/`
+
+Complete end-to-end example showing:
+- ✅ Python producer sending transactions to Event Hub
+- ✅ Databricks reading via Kafka endpoint (no library install!)
+- ✅ Writing to Cosmos DB
+- ✅ 100 sample transactions sent and verified
+
+**Resources created:**
+- Event Hub: `demo-transactions` in namespace `ehubnamespacemay2026`
+- Cosmos DB: `itc-bd-cosmos-demo` → `TransactionsDB.transactions`
+
+**Quick test:**
+```bash
+cd eventhub_databricks_demo/producer
+source venv/bin/activate
+python eventhub_producer.py
+```
+
+See `eventhub_databricks_demo/QUICKSTART.md` for full walkthrough.
+
+---
+
 ## Working setup note
 - Uttam works from **VS Code on the laptop** using the Azure/Databricks Cloud extensions —
   that environment has full `az` + Databricks CLI auth and can do everything.

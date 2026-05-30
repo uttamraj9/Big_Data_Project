@@ -1,0 +1,57 @@
+[
+  {
+    "transaction_id": "TXN-1001",
+    "customer_id": "CUST-5001",
+    "amount": 125.50,
+    "merchant": "Amazon UK",
+    "category": "Shopping",
+    "timestamp": "2026-05-30T10:15:30.123Z",
+    "location": "London, UK",
+    "is_fraud": false,
+    "payment_method": "credit_card"
+  },
+  {
+    "transaction_id": "TXN-1002",
+    "customer_id": "CUST-5002",
+    "amount": 45.00,
+    "merchant": "Tesco",
+    "category": "Groceries",
+    "timestamp": "2026-05-30T10:20:15.456Z",
+    "location": "Manchester, UK",
+    "is_fraud": false,
+    "payment_method": "debit_card"
+  },
+  {
+    "transaction_id": "TXN-1003",
+    "customer_id": "CUST-5003",
+    "amount": 2500.00,
+    "merchant": "Apple Store",
+    "category": "Electronics",
+    "timestamp": "2026-05-30T10:25:45.789Z",
+    "location": "Birmingham, UK",
+    "is_fraud": false,
+    "payment_method": "credit_card"
+  },
+  {
+    "transaction_id": "TXN-1004",
+    "customer_id": "CUST-5001",
+    "amount": 9999.99,
+    "merchant": "Unknown Merchant",
+    "category": "Other",
+    "timestamp": "2026-05-30T10:30:00.111Z",
+    "location": "Unknown",
+    "is_fraud": true,
+    "payment_method": "credit_card"
+  },
+  {
+    "transaction_id": "TXN-1005",
+    "customer_id": "CUST-5004",
+    "amount": 75.30,
+    "merchant": "Sainsburys",
+    "category": "Groceries",
+    "timestamp": "2026-05-30T10:35:22.333Z",
+    "location": "Leeds, UK",
+    "is_fraud": false,
+    "payment_method": "contactless"
+  }
+]
